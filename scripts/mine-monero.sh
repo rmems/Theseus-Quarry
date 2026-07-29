@@ -14,7 +14,6 @@ LOG_DIR="$REPO_ROOT/data/logs"
 
 # ─── Coin-specific defaults ───────────────────────────────────────────────────
 COIN="monero"
-BINARY_NAME="SRBMiner-MULTI"
 BINARY_DEFAULT="binaries/mining/SRBMiner-Multi-3-2-2/SRBMiner-MULTI"
 LOG_FILE="$LOG_DIR/${COIN}.log"
 API_PORT="${MONERO_API_PORT:-4015}"
@@ -46,7 +45,10 @@ preflight_check() {
             bin="xmrig"
         else
             echo "ERROR: No Monero miner found"
-            echo "Set MONERO_BIN in .env or place ${BINARY_NAME}/xmrig in binaries/mining/"
+            echo "Set MONERO_BIN in .env, or place a binary at one of:"
+            echo "  $REPO_ROOT/$BINARY_DEFAULT"
+            echo "  $REPO_ROOT/binaries/mining/xmrig/xmrig"
+            echo "  or ensure xmrig is on PATH"
             exit 1
         fi
     fi

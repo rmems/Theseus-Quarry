@@ -13,11 +13,13 @@ on:
 
 jobs:
   qodana:
-    # Job-level `if` cannot use secrets/env (actionlint). Skip fork PRs instead;
-    # same-repo PRs and pushes get the token via step env.
+    # Job-level `if` cannot use secrets/env (actionlint). Skip fork PRs and
+    # Dependabot (same-repo head but no Actions secrets). Trusted same-repo PRs
+    # and pushes get QODANA_TOKEN via step env.
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read

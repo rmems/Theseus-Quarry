@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Shared env loader for mine-*.sh scripts.
 # Prefer XDG config (canonical secrets location); fall back to repo .env.
 #

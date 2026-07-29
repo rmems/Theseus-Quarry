@@ -23,7 +23,8 @@ exclude_patterns = [
   "**/bower_components/**",
   "**/build/**",
   "**/cache/**",
-  "**/config/**",
+  # Do not exclude "**/config/**" — secrets under config/ must stay visible to
+  # TruffleHog and other scanners (qlty sample finding on this default).
   "**/db/**",
   "**/deps/**",
   "**/dist/**",
