@@ -118,8 +118,7 @@ mod tests {
             unsafe {
                 std::env::remove_var("KASPA_MINER_CMD");
             }
-            // May or may not match depending on canonical path existing
-            let _ = result;
+            assert_eq!(result.as_deref(), Some("/custom/path/bzminer"));
         });
     }
 

@@ -300,10 +300,14 @@ pub fn generic_stdout_reader(
     brand: MinerBrand,
     name: &str,
 ) {
-    for line in std::io::BufReader::new(stdout)
-        .lines()
-        .map_while(Result::ok)
-    {
+    for line_result in std::io::BufReader::new(stdout).lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("[{name}] stdout read error: {e}");
+                continue;
+            }
+        };
         let mut stats = MiningStats::default();
         stats.update_from_line(brand, &line);
 
