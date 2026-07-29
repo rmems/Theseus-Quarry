@@ -91,6 +91,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          # Remove the locally-tagged dev image and bound disk growth on the runner.
           docker image rm -f "${IMAGE_TAG}" || true
-          docker image prune -f || true
-          docker builder prune -f || true
+          docker image prune -f
+          docker builder prune -f --filter until=168h || true

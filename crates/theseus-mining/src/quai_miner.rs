@@ -245,7 +245,13 @@ fn spawn_process(
 
     let binary_lc = binary.to_ascii_lowercase();
     if binary_lc.contains("rigel") {
-        let wallet_addr = wallet.as_deref()?;
+        let Some(wallet_addr) = wallet.as_deref() else {
+            let msg = "QUAI_WALLET_ADDRESS missing or invalid — cannot start Rigel";
+            eprintln!("[quai-miner] {msg}");
+            *state.lock().unwrap() = QuaiMinerState::Failed(msg.to_string());
+            let _ = telem_tx.send(WireMsg::Status(format!("[quai-miner] {msg}")));
+            return None;
+        };
         let rigel_pool = normalize_rigel_pool(&pool);
         let worker = resolve_worker_name();
         let wallet_worker = format!("{}.{}", wallet_addr, worker);

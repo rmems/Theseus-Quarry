@@ -47,7 +47,9 @@ ocean.env
 .mimocode/
 .opencode/
 .codex/
-.cursor/
+.cursor/*
+!.cursor/Dockerfile
+!.cursor/environment.json
 .zed/
 .claude/
 .grok/

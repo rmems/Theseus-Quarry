@@ -31,7 +31,7 @@ async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::Tel
         "kaspa_telemetry",
         NodeHealthInput {
             coin: "kaspa".into(),
-            hashrate_mh: hashrate_mh.or(Some(0.0)),
+            hashrate_mh,
             ..Default::default()
         },
     ))

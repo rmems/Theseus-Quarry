@@ -472,6 +472,17 @@ fn spawn_native_binary(
         .unwrap_or(DEFAULT_PORT);
     let peers = std::env::var("QUBIC_KNOWN_PEERS").unwrap_or_default();
 
+    let wallet = match std::env::var("QUBIC_WALLET_IDENTITY") {
+        Ok(w) if !w.trim().is_empty() => w,
+        _ => {
+            let msg = "QUBIC_WALLET_IDENTITY is required for native mode";
+            eprintln!("[qubic] {msg}");
+            *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
+            let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
+            return None;
+        }
+    };
+
     *state.lock().unwrap() = QubicMinerState::Starting;
 
     let mut command = Command::new(&binary);
@@ -479,7 +490,9 @@ fn spawn_native_binary(
         .arg("--threads")
         .arg(threads.to_string())
         .arg("--port")
-        .arg(port.to_string());
+        .arg(port.to_string())
+        .arg("--identity")
+        .arg(&wallet);
 
     if aigarth_enabled {
         command.arg("--gpu");
@@ -489,13 +502,6 @@ fn spawn_native_binary(
 
     if !peers.is_empty() {
         command.arg("--peers").arg(&peers);
-    }
-
-    // Set wallet identity if available.
-    if let Ok(wallet) = std::env::var("QUBIC_WALLET_IDENTITY")
-        && !wallet.is_empty()
-    {
-        command.arg("--identity").arg(&wallet);
     }
 
     // Put qubic-core in its own process group.

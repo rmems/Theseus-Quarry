@@ -157,7 +157,8 @@ impl MiningStats {
             }
             MinerBrand::Xmrig | MinerBrand::SRBMiner => {
                 if let Some(hr) = extract_hashrate(&lower, &["h/s", "kh/s", "mh/s"]) {
-                    self.monero.hashrate_h_s = hr;
+                    // extract_hashrate normalizes to MH/s; Monero fields are H/s.
+                    self.monero.hashrate_h_s = hr * 1e6;
                     self.monero.is_active = true;
                 }
                 if let Some(n) = extract_count_after(line, "accepted") {
@@ -169,7 +170,8 @@ impl MiningStats {
             }
             MinerBrand::Hellminer => {
                 if let Some(hr) = extract_hashrate(&lower, &["h/s", "kh/s", "mh/s"]) {
-                    self.verus.hashrate_h_s = hr;
+                    // extract_hashrate normalizes to MH/s; Verus fields are H/s.
+                    self.verus.hashrate_h_s = hr * 1e6;
                     self.verus.is_active = true;
                 }
                 if let Some(n) = extract_count_after(line, "accepted") {
@@ -203,6 +205,9 @@ impl MiningStats {
     }
 }
 
+/// Parse a hashrate token and normalize to **MH/s**.
+///
+/// Callers that store H/s or kH/s must convert back (`* 1e6` or `* 1e3`).
 fn extract_hashrate(line: &str, suffixes: &[&str]) -> Option<f64> {
     for suffix in suffixes {
         let pattern = format!("([0-9.]+)\\s*{}", regex::escape(suffix));
@@ -223,6 +228,30 @@ fn extract_hashrate(line: &str, suffixes: &[&str]) -> Option<f64> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod hashrate_unit_tests {
+    use super::*;
+
+    #[test]
+    fn xmrig_h_s_stored_as_hashes_per_second() {
+        let mut stats = MiningStats::default();
+        stats.update_from_line(
+            MinerBrand::Xmrig,
+            "speed 10s/60s/15m 1234.5 h/s max 2000.0 h/s",
+        );
+        assert!(stats.monero.is_active);
+        assert!((stats.monero.hashrate_h_s - 1234.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hellminer_kh_s_converted_to_h_s() {
+        let mut stats = MiningStats::default();
+        stats.update_from_line(MinerBrand::Hellminer, "hashrate: 2.5 kh/s");
+        assert!(stats.verus.is_active);
+        assert!((stats.verus.hashrate_h_s - 2500.0).abs() < 1e-6);
+    }
 }
 
 pub fn extract_count_after(line: &str, keyword: &str) -> Option<u64> {

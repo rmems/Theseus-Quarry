@@ -113,7 +113,10 @@ fn main() -> anyhow::Result<()> {
             let line = match line_result {
                 Ok(l) => l,
                 Err(e) => {
-                    eprintln!("[harvest] {} line read error: {e}", path.display());
+                    eprintln!(
+                        "[harvest] skipping unreadable line in {}: {e}",
+                        path.display()
+                    );
                     continue;
                 }
             };
