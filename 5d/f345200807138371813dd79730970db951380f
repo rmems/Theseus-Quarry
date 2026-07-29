@@ -1,0 +1,17 @@
+scripts/mine-monero.sh
+  ai_agent 48-51
+scripts/load-env.sh
+  ai_agent 1
+scripts/mine-verus.sh
+  ai_agent 46-48
+.github/workflows/code_quality.yml
+  ai_agent 16-18,20-22
+.qlty/qlty.toml
+  ai_agent 26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5df345200807138371813dd79730970db951380f",
+  "prompts": {}
+}
