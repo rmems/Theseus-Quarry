@@ -16,6 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUSTUP_INIT_SKIP_PATH_CHECK: "yes"
 
 jobs:
   check:
@@ -28,16 +29,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install latest stable Rust
+      - name: Ensure rustup (prefer over distro rustc)
+        run: |
+          set -euo pipefail
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          if ! command -v rustup >/dev/null 2>&1; then
+            echo "Installing rustup..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+              --default-toolchain none \
+              --profile minimal
+          fi
+          # shellcheck disable=SC1091
+          . "${HOME}/.cargo/env"
+          rustup --version
+
+      - name: Install latest stable Rust (rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt, clippy, rust-src
 
       - name: Show toolchain
         run: |
+          set -euo pipefail
+          . "${HOME}/.cargo/env"
+          which rustc cargo rustup
           rustc --version --verbose
           cargo --version
           rustup show
+          rustup component list --installed | grep -E 'rustfmt|clippy|rust-src' || true
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2

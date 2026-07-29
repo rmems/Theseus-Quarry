@@ -74,12 +74,21 @@ See `CONTEXT.md` for domain terms (envelope, kind, stem, adapters).
 
 ## Build
 
+Requires **rustup** (not only a distro `rustc` package). `rust-toolchain.toml` pins the **latest stable** channel and installs `rustfmt`, `clippy`, `rust-src`, and `rust-analyzer`.
+
 ```bash
+# one-time / update toolchain
+./scripts/setup-rust.sh
+# ensure ~/.cargo/bin is first on PATH
+source "$HOME/.cargo/env"
+
 cargo build --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Requires a recent Rust toolchain (edition 2024; `rust-toolchain.toml` pins **stable**). GPU NVML features need NVIDIA drivers on the host where used.
+Edition 2024. GPU NVML features need NVIDIA drivers on the host where used.
 
 ### Dev Container / Docker
 
