@@ -79,7 +79,49 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-Requires a recent Rust toolchain (edition 2024). GPU NVML features need NVIDIA drivers where used.
+Requires a recent Rust toolchain (edition 2024; `rust-toolchain.toml` pins **stable**). GPU NVML features need NVIDIA drivers on the host where used.
+
+### Dev Container / Docker
+
+Source-only image (no `binaries/`, wallets, or `.env`):
+
+```bash
+docker build -f .devcontainer/Dockerfile -t theseus-quarry:dev .
+docker run --rm -it -v "$PWD:/workspace" -w /workspace theseus-quarry:dev bash
+```
+
+Or open the repo in VS Code / Cursor **Dev Containers** (`.devcontainer/`). Do not mount host wallet paths into the container by default.
+
+### CI (self-hosted GPU runner)
+
+GitHub Actions runs on a **self-hosted** runner with labels:
+
+`self-hosted`, `Linux`, `X64`, `ryzen`
+
+| Workflow | What it does |
+|----------|----------------|
+| `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace` |
+| `Docker` | Build `.devcontainer/Dockerfile`, smoke `cargo test` in the image |
+
+On the runner host (e.g. ShipOfTheseus):
+
+```bash
+cd ~/actions-runner/Theseus-Quarry-runner
+# preferred: install as a service (needs sudo once)
+sudo ./svc.sh install
+sudo ./svc.sh start
+sudo ./svc.sh status
+# or foreground: ./run.sh
+```
+
+Confirm online:
+
+```bash
+gh api repos/rmems/Theseus-Quarry/actions/runners \
+  --jq '.runners[] | {name, status, labels: [.labels[].name]}'
+```
+
+CI never needs mining binaries or secrets checked into git.
 
 ## Coins (orchestration targets)
 

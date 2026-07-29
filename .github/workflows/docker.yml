@@ -1,0 +1,58 @@
+# Build the source-only dev image on the self-hosted GPU host (Docker native).
+
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/docker.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "rust-toolchain.toml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/docker.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "rust-toolchain.toml"
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_TAG: theseus-quarry:dev
+
+jobs:
+  build:
+    name: build · smoke test
+    runs-on: [self-hosted, Linux, X64, ryzen]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker version
+        run: docker version
+
+      - name: Build dev image
+        run: |
+          docker build \
+            -f .devcontainer/Dockerfile \
+            -t "${IMAGE_TAG}" \
+            .
+
+      - name: Smoke — cargo test inside image
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "${IMAGE_TAG}" \
+            cargo test --workspace
