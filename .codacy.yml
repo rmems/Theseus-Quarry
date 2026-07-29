@@ -1,0 +1,11 @@
+# Codacy Cloud / CLI analysis ignores
+# https://docs.codacy.com/repositories-configure/configuring-codacy-using-a-config-file/
+---
+exclude_paths:
+  - "binaries/**"
+  - "target/**"
+  - ".qodana/**"
+  - ".qlty/**"
+  - "Cargo.lock"
+  - "**/*.md"
+  - "data/**"
