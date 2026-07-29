@@ -90,6 +90,8 @@ struct Telemetry {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let out_path = expand_tilde(args.out);
+    let monero_path = expand_tilde(args.monero);
+    let kaspa_path = expand_tilde(args.kaspa);
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -99,8 +101,8 @@ fn main() -> anyhow::Result<()> {
 
     // ── Monero ────────────────────────────────────────────────────────
     // Log line: "Synced 3198616/3634345 (88%, 435729 left)"
-    if args.monero.exists() {
-        let reader = BufReader::new(File::open(&args.monero)?);
+    if monero_path.exists() {
+        let reader = BufReader::new(File::open(&monero_path)?);
         let mut prev_height = 0u64;
         let mut prev_ts_secs = 0f64;
 
@@ -155,7 +157,7 @@ fn main() -> anyhow::Result<()> {
         }
         eprintln!("[harvest] Monero: {} records", total);
     } else {
-        eprintln!("[harvest] Monero log not found: {}", args.monero.display());
+        eprintln!("[harvest] Monero log not found: {}", monero_path.display());
     }
 
     // ── Kaspa ─────────────────────────────────────────────────────────
@@ -163,8 +165,8 @@ fn main() -> anyhow::Result<()> {
     //            (0 transactions; 0 UTXO-validated blocks; 0.00 parents;
     //             0.00 mergeset; 0.00 TPB; 0.0 mass)"
     let kaspa_start = total;
-    if args.kaspa.exists() {
-        let reader = BufReader::new(File::open(&args.kaspa)?);
+    if kaspa_path.exists() {
+        let reader = BufReader::new(File::open(&kaspa_path)?);
 
         for line_result in reader.lines() {
             let line = match line_result {
@@ -212,7 +214,7 @@ fn main() -> anyhow::Result<()> {
         }
         eprintln!("[harvest] Kaspa: {} records", total - kaspa_start);
     } else {
-        eprintln!("[harvest] Kaspa log not found: {}", args.kaspa.display());
+        eprintln!("[harvest] Kaspa log not found: {}", kaspa_path.display());
     }
 
     writer.flush()?;

@@ -592,16 +592,19 @@ fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
 // ─── Stdout reader ───────────────────────────────────────────────────────────
 
 fn qubic_stdout_reader(stdout: std::process::ChildStdout, tx: mpsc::Sender<WireMsg>) {
+    // Cumulative stats across lines (hashrate + share counters), matching
+    // generic_stdout_reader so share-only / partial lines retain prior context.
+    let mut stats = MiningStats::default();
+
     for line in std::io::BufReader::new(stdout)
         .lines()
         .map_while(Result::ok)
     {
-        let mut stats = MiningStats::default();
         stats.update_from_line(MinerBrand::QubicCore, &line);
 
         if stats.qubic.is_active || stats.qubic.aigarth_active || stats.qubic.epoch_progress > 0.0 {
             let mut telem = MiningTelemetry::new();
-            telem.stats = stats;
+            telem.stats = stats.clone();
             let _ = tx.send(WireMsg::mining_telem(telem));
         } else {
             let _ = tx.send(WireMsg::Status(format!("[qubic] {line}")));
