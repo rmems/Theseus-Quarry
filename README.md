@@ -100,8 +100,11 @@ GitHub Actions runs on a **self-hosted** runner with labels:
 
 | Workflow | What it does |
 |----------|----------------|
-| `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace`; **Qodana Rust** (`qodana.yaml`) |
+| `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace`; self-hosted **qodana · rust** |
+| `Qodana` | Cloud scan via `JetBrains/qodana-action@v2026.1` (`.github/workflows/code_quality.yml`) — needs `QODANA_TOKEN` |
 | `Docker` | Build `.devcontainer/Dockerfile`, smoke `cargo test` in the image |
+
+Add the Qodana Cloud project token as a repo secret: **Settings → Secrets → `QODANA_TOKEN`**.
 
 Local Qodana (optional):
 
