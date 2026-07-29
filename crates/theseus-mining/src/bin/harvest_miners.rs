@@ -92,7 +92,7 @@ fn main() -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(path)?);
         let mut brand = MinerBrand::Unknown;
 
-        for line in reader.lines().flatten() {
+        for line in reader.lines().map_while(Result::ok) {
             if brand == MinerBrand::Unknown {
                 brand = detect_brand(&line);
             }

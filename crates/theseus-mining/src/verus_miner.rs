@@ -1,7 +1,7 @@
 //! Verus miner — spawns `hellminer` or `SRBMiner-Multi` as a managed subprocess.
 
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use mining_telemetry_core::{MinerBrand, WireMsg};
 
@@ -148,10 +148,14 @@ mod tests {
     #[test]
     fn detect_binary_env_override() {
         crate::miner::with_env_lock(|| {
-                unsafe { std::env::set_var("VRSC_MINER_CMD", "/custom/path/hellminer"); }
-                let result = detect_verus_binary();
-                unsafe { std::env::remove_var("VRSC_MINER_CMD"); }
-                assert_eq!(result, Some("/custom/path/hellminer".to_string()));
+            unsafe {
+                std::env::set_var("VRSC_MINER_CMD", "/custom/path/hellminer");
+            }
+            let result = detect_verus_binary();
+            unsafe {
+                std::env::remove_var("VRSC_MINER_CMD");
+            }
+            assert_eq!(result, Some("/custom/path/hellminer".to_string()));
         });
     }
 

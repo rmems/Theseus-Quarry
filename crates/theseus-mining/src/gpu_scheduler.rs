@@ -12,12 +12,12 @@
 //! 4. VRAM pressure (used > ceiling) → pause mining
 //! 5. Otherwise → mining allowed
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 use nvml_wrapper::Nvml;
+use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 
 use mining_telemetry_core::GpuSchedulerEvent;
 
@@ -168,16 +168,16 @@ impl GpuScheduler {
         let provider: Box<dyn GpuSnapshotProvider> = match Nvml::init() {
             Ok(nvml) => {
                 // Auto-compute ceiling from actual total VRAM.
-                if let Ok(device) = nvml.device_by_index(0) {
-                    if let Ok(mem) = device.memory_info() {
-                        let total_mb = mem.total / (1024 * 1024);
-                        config.vram_mining_ceiling_mb =
-                            total_mb.saturating_sub(config.vram_reserved_mb);
-                        eprintln!(
-                            "[gpu-sched] NVML init OK — total={total_mb}MB reserved={}MB ceiling={}MB",
-                            config.vram_reserved_mb, config.vram_mining_ceiling_mb
-                        );
-                    }
+                if let Ok(device) = nvml.device_by_index(0)
+                    && let Ok(mem) = device.memory_info()
+                {
+                    let total_mb = mem.total / (1024 * 1024);
+                    config.vram_mining_ceiling_mb =
+                        total_mb.saturating_sub(config.vram_reserved_mb);
+                    eprintln!(
+                        "[gpu-sched] NVML init OK — total={total_mb}MB reserved={}MB ceiling={}MB",
+                        config.vram_reserved_mb, config.vram_mining_ceiling_mb
+                    );
                 }
                 Box::new(NvmlProvider { nvml })
             }

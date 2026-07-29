@@ -1,0 +1,4 @@
+# Always use current stable (latest released Rust).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

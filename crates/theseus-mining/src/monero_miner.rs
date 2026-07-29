@@ -1,7 +1,7 @@
 //! Monero miner — spawns `SRBMiner-Multi` or `xmrig` as a managed subprocess.
 
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use mining_telemetry_core::{MinerBrand, WireMsg};
 
@@ -125,13 +125,7 @@ fn spawn_monero_miner(
 
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-    let pid = miner::spawn_managed_process(
-        command,
-        "monero",
-        state,
-        telem_tx,
-        MinerBrand::Xmrig,
-    );
+    let pid = miner::spawn_managed_process(command, "monero", state, telem_tx, MinerBrand::Xmrig);
 
     if let Some(p) = pid {
         eprintln!("[monero] spawned PID {p}  pool={pool}  threads={threads}  api=:{api_port}");
@@ -152,10 +146,14 @@ mod tests {
     #[test]
     fn detect_binary_env_override() {
         crate::miner::with_env_lock(|| {
-                unsafe { std::env::set_var("MONERO_MINER_CMD", "/custom/path/xmrig"); }
-                let result = detect_monero_binary();
-                unsafe { std::env::remove_var("MONERO_MINER_CMD"); }
-                assert_eq!(result, Some("/custom/path/xmrig".to_string()));
+            unsafe {
+                std::env::set_var("MONERO_MINER_CMD", "/custom/path/xmrig");
+            }
+            let result = detect_monero_binary();
+            unsafe {
+                std::env::remove_var("MONERO_MINER_CMD");
+            }
+            assert_eq!(result, Some("/custom/path/xmrig".to_string()));
         });
     }
 

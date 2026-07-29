@@ -1,6 +1,6 @@
+use super::TelemetryRecord;
 use mining_telemetry_core::host_hw;
 use std::path::PathBuf;
-use super::TelemetryRecord;
 
 pub fn poll() -> TelemetryRecord {
     TelemetryRecord {
@@ -14,10 +14,10 @@ fn find_hwmon(name: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(base).ok()?;
     for entry in entries.flatten() {
         let name_path = entry.path().join("name");
-        if let Ok(n) = std::fs::read_to_string(&name_path) {
-            if n.trim() == name {
-                return Some(entry.path());
-            }
+        if let Ok(n) = std::fs::read_to_string(&name_path)
+            && n.trim() == name
+        {
+            return Some(entry.path());
         }
     }
     None

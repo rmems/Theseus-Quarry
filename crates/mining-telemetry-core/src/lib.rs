@@ -1,9 +1,9 @@
 mod schema;
 
 pub use schema::{
+    JsonlSink, NodeHealthInput, RecordKind, SCHEMA_VERSION, TelemetryEnvelope, TelemetryPayload,
     detect_host, envelope_from_gpu_sched, envelope_from_rotation, envelopes_from_mining_stats,
-    envelopes_from_mining_telemetry, envelopes_from_wire, host_hw, node_health, JsonlSink,
-    RecordKind, TelemetryEnvelope, TelemetryPayload, SCHEMA_VERSION,
+    envelopes_from_mining_telemetry, envelopes_from_wire, host_hw, node_health,
 };
 
 use serde::Serialize;
@@ -206,22 +206,21 @@ impl MiningStats {
 fn extract_hashrate(line: &str, suffixes: &[&str]) -> Option<f64> {
     for suffix in suffixes {
         let pattern = format!("([0-9.]+)\\s*{}", regex::escape(suffix));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(caps) = re.captures(line) {
-                if let Ok(val) = caps.get(1).unwrap().as_str().parse::<f64>() {
-                    let multiplier = match *suffix {
-                        "h/s" => 1e-6,
-                        "kh/s" => 1e-3,
-                        "mh/s" => 1.0,
-                        "gh/s" => 1e3,
-                        "ths" => 1e3,
-                        "mhs" => 1.0,
-                        "ghs" => 1e3,
-                        _ => 1.0,
-                    };
-                    return Some(val * multiplier);
-                }
-            }
+        if let Ok(re) = regex::Regex::new(&pattern)
+            && let Some(caps) = re.captures(line)
+            && let Ok(val) = caps.get(1)?.as_str().parse::<f64>()
+        {
+            let multiplier = match *suffix {
+                "h/s" => 1e-6,
+                "kh/s" => 1e-3,
+                "mh/s" => 1.0,
+                "gh/s" => 1e3,
+                "ths" => 1e3,
+                "mhs" => 1.0,
+                "ghs" => 1e3,
+                _ => 1.0,
+            };
+            return Some(val * multiplier);
         }
     }
     None
@@ -384,8 +383,15 @@ impl Default for MiningTelemetry {
 
 #[derive(Debug, Clone)]
 pub enum WireMsg {
-    MiningTelem(MiningTelemetry),
+    /// Boxed to keep `WireMsg` small (clippy `large_enum_variant`).
+    MiningTelem(Box<MiningTelemetry>),
     Status(String),
     GpuSchedulerEvent(GpuSchedulerEvent),
     RotationEvent(RotationEvent),
+}
+
+impl WireMsg {
+    pub fn mining_telem(t: MiningTelemetry) -> Self {
+        Self::MiningTelem(Box::new(t))
+    }
 }

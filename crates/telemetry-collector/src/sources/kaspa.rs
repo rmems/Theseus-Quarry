@@ -1,5 +1,5 @@
-use mining_telemetry_core::node_health;
 use super::TelemetryRecord;
+use mining_telemetry_core::{NodeHealthInput, node_health};
 
 const KASPA_BZ_API: &str = "http://127.0.0.1:4014/";
 
@@ -29,14 +29,10 @@ async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::Tel
     Some(node_health(
         "collector",
         "kaspa_telemetry",
-        "kaspa",
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        hashrate_mh.or(Some(0.0)),
+        NodeHealthInput {
+            coin: "kaspa".into(),
+            hashrate_mh: hashrate_mh.or(Some(0.0)),
+            ..Default::default()
+        },
     ))
 }

@@ -5,7 +5,7 @@
 
 use std::io::BufRead;
 use std::process::{Child, Command};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -81,10 +81,10 @@ pub fn ship_work_dir() -> String {
             return t.to_string();
         }
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        if cwd.join("binaries/mining").is_dir() || cwd.join("crates/theseus-mining").is_dir() {
-            return cwd.to_string_lossy().into_owned();
-        }
+    if let Ok(cwd) = std::env::current_dir()
+        && (cwd.join("binaries/mining").is_dir() || cwd.join("crates/theseus-mining").is_dir())
+    {
+        return cwd.to_string_lossy().into_owned();
     }
     let home = std::env::var("HOME").unwrap_or_default();
     format!("{home}/Theseus-Quarry")
@@ -93,10 +93,10 @@ pub fn ship_work_dir() -> String {
 /// True if `path` is a non-empty regular file (skips 0-byte placeholders / text stubs).
 pub fn is_usable_binary(path: &str) -> bool {
     let p = std::path::Path::new(path);
-    match std::fs::metadata(p) {
-        Ok(meta) if meta.is_file() && meta.len() > 1024 => true,
-        _ => false,
-    }
+    matches!(
+        std::fs::metadata(p),
+        Ok(meta) if meta.is_file() && meta.len() > 1024
+    )
 }
 
 /// Detect a binary: env override → canonical paths under repo → local paths → `which`.
@@ -152,42 +152,9 @@ where
     f()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn is_usable_binary_rejects_missing_and_tiny() {
-        assert!(!is_usable_binary("/nonexistent/miner-binary-xyz"));
-        let dir = std::env::temp_dir().join("theseus_miner_detect_test");
-        let _ = std::fs::create_dir_all(&dir);
-        let tiny = dir.join("stub");
-        std::fs::write(&tiny, b"x").unwrap();
-        assert!(!is_usable_binary(tiny.to_str().unwrap()));
-        let fat = dir.join("realish");
-        let mut f = std::fs::File::create(&fat).unwrap();
-        f.write_all(&vec![0u8; 2048]).unwrap();
-        assert!(is_usable_binary(fat.to_str().unwrap()));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn detect_binary_env_override_wins() {
-        with_env_lock(|| {
-            unsafe {
-                std::env::set_var("THESEUS_TEST_MINER_CMD", "/opt/custom-miner");
-            }
-            let got = detect_binary("THESEUS_TEST_MINER_CMD", &[], &[], "nope");
-            unsafe {
-                std::env::remove_var("THESEUS_TEST_MINER_CMD");
-            }
-            assert_eq!(got.as_deref(), Some("/opt/custom-miner"));
-        });
-    }
-}
-
 // ─── Generic MinerHandle ─────────────────────────────────────────────────────
+
+type SpawnFn = fn(&mpsc::Sender<WireMsg>, Arc<Mutex<MinerState>>, &MinerConfig) -> Option<u32>;
 
 pub struct MinerHandle {
     cmd_tx: mpsc::SyncSender<MinerCommand>,
@@ -198,7 +165,7 @@ impl MinerHandle {
         name: &'static str,
         telem_tx: mpsc::Sender<WireMsg>,
         config: MinerConfig,
-        spawn_fn: fn(&mpsc::Sender<WireMsg>, Arc<Mutex<MinerState>>, &MinerConfig) -> Option<u32>,
+        spawn_fn: SpawnFn,
     ) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::sync_channel::<MinerCommand>(32);
         thread::Builder::new()
@@ -219,7 +186,7 @@ fn supervisor_loop(
     cmd_rx: mpsc::Receiver<MinerCommand>,
     telem_tx: mpsc::Sender<WireMsg>,
     config: MinerConfig,
-    spawn_fn: fn(&mpsc::Sender<WireMsg>, Arc<Mutex<MinerState>>, &MinerConfig) -> Option<u32>,
+    spawn_fn: SpawnFn,
 ) {
     let state: Arc<Mutex<MinerState>> = Arc::new(Mutex::new(MinerState::Idle));
     let mut child_pid: Option<u32> = None;
@@ -300,7 +267,10 @@ pub fn spawn_managed_process(
                 thread::Builder::new()
                     .name(format!("{name}-stderr"))
                     .spawn(move || {
-                        for line in std::io::BufReader::new(stderr).lines().flatten() {
+                        for line in std::io::BufReader::new(stderr)
+                            .lines()
+                            .map_while(Result::ok)
+                        {
                             eprintln!("[{prefix}-stderr] {line}");
                         }
                     })
@@ -330,7 +300,10 @@ pub fn generic_stdout_reader(
     brand: MinerBrand,
     name: &str,
 ) {
-    for line in std::io::BufReader::new(stdout).lines().flatten() {
+    for line in std::io::BufReader::new(stdout)
+        .lines()
+        .map_while(Result::ok)
+    {
         let mut stats = MiningStats::default();
         stats.update_from_line(brand, &line);
 
@@ -348,9 +321,44 @@ pub fn generic_stdout_reader(
         if is_active {
             let mut telem = MiningTelemetry::new();
             telem.stats = stats;
-            let _ = tx.send(WireMsg::MiningTelem(telem));
+            let _ = tx.send(WireMsg::mining_telem(telem));
         } else {
             let _ = tx.send(WireMsg::Status(format!("[{name}] {line}")));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn is_usable_binary_rejects_missing_and_tiny() {
+        assert!(!is_usable_binary("/nonexistent/miner-binary-xyz"));
+        let dir = std::env::temp_dir().join("theseus_miner_detect_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let tiny = dir.join("stub");
+        std::fs::write(&tiny, b"x").unwrap();
+        assert!(!is_usable_binary(tiny.to_str().unwrap()));
+        let fat = dir.join("realish");
+        let mut f = std::fs::File::create(&fat).unwrap();
+        f.write_all(&vec![0u8; 2048]).unwrap();
+        assert!(is_usable_binary(fat.to_str().unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_binary_env_override_wins() {
+        with_env_lock(|| {
+            unsafe {
+                std::env::set_var("THESEUS_TEST_MINER_CMD", "/opt/custom-miner");
+            }
+            let got = detect_binary("THESEUS_TEST_MINER_CMD", &[], &[], "nope");
+            unsafe {
+                std::env::remove_var("THESEUS_TEST_MINER_CMD");
+            }
+            assert_eq!(got.as_deref(), Some("/opt/custom-miner"));
+        });
     }
 }

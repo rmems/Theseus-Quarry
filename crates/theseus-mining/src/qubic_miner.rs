@@ -30,7 +30,7 @@
 
 use std::io::BufRead;
 use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -406,16 +406,15 @@ fn healthcheck_loop(state: Arc<Mutex<QubicMinerState>>, telem_tx: mpsc::Sender<W
         if let Ok(output) = Command::new("curl")
             .args(["-s", "-m", "5", "http://127.0.0.1:8099/tick-info"])
             .output()
+            && output.status.success()
         {
-            if output.status.success() {
-                let body = String::from_utf8_lossy(&output.stdout);
-                // Parse tick number from JSON response for telemetry.
-                if let Some(tick) = extract_tick_from_json(&body) {
-                    let mut telem = MiningTelemetry::new();
-                    telem.stats.qubic.current_tick = tick;
-                    telem.stats.qubic.is_active = true;
-                    let _ = telem_tx.send(WireMsg::MiningTelem(telem));
-                }
+            let body = String::from_utf8_lossy(&output.stdout);
+            // Parse tick number from JSON response for telemetry.
+            if let Some(tick) = extract_tick_from_json(&body) {
+                let mut telem = MiningTelemetry::new();
+                telem.stats.qubic.current_tick = tick;
+                telem.stats.qubic.is_active = true;
+                let _ = telem_tx.send(WireMsg::mining_telem(telem));
             }
         }
     }
@@ -493,10 +492,10 @@ fn spawn_native_binary(
     }
 
     // Set wallet identity if available.
-    if let Ok(wallet) = std::env::var("QUBIC_WALLET_IDENTITY") {
-        if !wallet.is_empty() {
-            command.arg("--identity").arg(&wallet);
-        }
+    if let Ok(wallet) = std::env::var("QUBIC_WALLET_IDENTITY")
+        && !wallet.is_empty()
+    {
+        command.arg("--identity").arg(&wallet);
     }
 
     // Put qubic-core in its own process group.
@@ -533,7 +532,10 @@ fn spawn_native_binary(
                 thread::Builder::new()
                     .name("qubic-stderr".into())
                     .spawn(move || {
-                        for line in std::io::BufReader::new(stderr).lines().flatten() {
+                        for line in std::io::BufReader::new(stderr)
+                            .lines()
+                            .map_while(Result::ok)
+                        {
                             eprintln!("[qubic-stderr] {line}");
                         }
                     })
@@ -584,14 +586,17 @@ fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
 // ─── Stdout reader ───────────────────────────────────────────────────────────
 
 fn qubic_stdout_reader(stdout: std::process::ChildStdout, tx: mpsc::Sender<WireMsg>) {
-    for line in std::io::BufReader::new(stdout).lines().flatten() {
+    for line in std::io::BufReader::new(stdout)
+        .lines()
+        .map_while(Result::ok)
+    {
         let mut stats = MiningStats::default();
         stats.update_from_line(MinerBrand::QubicCore, &line);
 
         if stats.qubic.is_active || stats.qubic.aigarth_active || stats.qubic.epoch_progress > 0.0 {
             let mut telem = MiningTelemetry::new();
             telem.stats = stats;
-            let _ = tx.send(WireMsg::MiningTelem(telem));
+            let _ = tx.send(WireMsg::mining_telem(telem));
         } else {
             let _ = tx.send(WireMsg::Status(format!("[qubic] {line}")));
         }
@@ -609,10 +614,14 @@ mod tests {
     #[test]
     fn detect_binary_env_override() {
         crate::miner::with_env_lock(|| {
-                unsafe { std::env::set_var("QUBIC_MINER_CMD", "/custom/path/qubic-core"); }
-                let result = detect_qubic_binary();
-                unsafe { std::env::remove_var("QUBIC_MINER_CMD"); }
-                assert_eq!(result, Some("/custom/path/qubic-core".to_string()));
+            unsafe {
+                std::env::set_var("QUBIC_MINER_CMD", "/custom/path/qubic-core");
+            }
+            let result = detect_qubic_binary();
+            unsafe {
+                std::env::remove_var("QUBIC_MINER_CMD");
+            }
+            assert_eq!(result, Some("/custom/path/qubic-core".to_string()));
         });
     }
 
@@ -636,12 +645,16 @@ mod tests {
     #[test]
     fn detect_compose_env_override() {
         crate::miner::with_env_lock(|| {
-                // Non-existent file should fall through.
-                unsafe { std::env::set_var("QUBIC_COMPOSE_FILE", "/nonexistent/docker-compose.yml"); }
-                let result = detect_compose_file();
-                unsafe { std::env::remove_var("QUBIC_COMPOSE_FILE"); }
-                // Should not match because file doesn't exist.
-                assert!(result.is_none() || result.is_some()); // no panic
+            // Non-existent file should fall through.
+            unsafe {
+                std::env::set_var("QUBIC_COMPOSE_FILE", "/nonexistent/docker-compose.yml");
+            }
+            let result = detect_compose_file();
+            unsafe {
+                std::env::remove_var("QUBIC_COMPOSE_FILE");
+            }
+            // Should not match because file doesn't exist.
+            assert!(result.is_none() || result.is_some()); // no panic
         });
     }
 

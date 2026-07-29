@@ -1,6 +1,6 @@
+use mining_telemetry_core::TelemetryEnvelope;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use mining_telemetry_core::TelemetryEnvelope;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
@@ -47,25 +47,15 @@ impl JsonlWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mining_telemetry_core::{host_hw, SCHEMA_VERSION};
+    use mining_telemetry_core::{SCHEMA_VERSION, host_hw};
 
     #[tokio::test]
     async fn writes_schema_v1_envelope() {
-        let dir = std::env::temp_dir().join(format!(
-            "theseus_telem_writer_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("theseus_telem_writer_{}", std::process::id()));
         let _ = tokio::fs::remove_dir_all(&dir).await;
         let mut w = JsonlWriter::new(&dir);
 
-        let env = host_hw(
-            "collector",
-            "hwmon_telemetry",
-            Some(61.0),
-            None,
-            None,
-            None,
-        );
+        let env = host_hw("collector", "hwmon_telemetry", Some(61.0), None, None, None);
         w.write_envelope(&env).await.unwrap();
         drop(w);
 

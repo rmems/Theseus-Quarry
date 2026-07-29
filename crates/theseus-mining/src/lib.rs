@@ -1,8 +1,8 @@
 // theseus-mining library
-pub mod miner;
 pub mod dynex_miner;
 pub mod gpu_scheduler;
 pub mod kaspa_miner;
+pub mod miner;
 pub mod mining_supervisor;
 pub mod monero_miner;
 pub mod quai_miner;

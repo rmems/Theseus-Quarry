@@ -107,14 +107,21 @@ pub enum TelemetryPayload {
 }
 
 impl TelemetryEnvelope {
-    pub fn new(source: impl Into<String>, kind: RecordKind, stem: impl Into<String>, payload: TelemetryPayload) -> Self {
+    pub fn new(
+        source: impl Into<String>,
+        kind: RecordKind,
+        stem: impl Into<String>,
+        payload: TelemetryPayload,
+    ) -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
             timestamp: Utc::now(),
             source: source.into(),
             kind,
             host: detect_host(),
-            run_id: std::env::var("TELEMETRY_RUN_ID").ok().filter(|s| !s.is_empty()),
+            run_id: std::env::var("TELEMETRY_RUN_ID")
+                .ok()
+                .filter(|s| !s.is_empty()),
             stem: stem.into(),
             payload,
         }
@@ -172,7 +179,14 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
     let mut out = Vec::new();
     let ts = stats.timestamp;
 
-    let push = |out: &mut Vec<TelemetryEnvelope>, coin: CoinType, hashrate: f64, unit: &str, acc: u64, rej: u64, active: bool, uptime: u64| {
+    let push = |out: &mut Vec<TelemetryEnvelope>,
+                coin: CoinType,
+                hashrate: f64,
+                unit: &str,
+                acc: u64,
+                rej: u64,
+                active: bool,
+                uptime: u64| {
         if !active && hashrate == 0.0 {
             return;
         }
@@ -197,33 +211,90 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
 
     let d: &DynexStats = &stats.dynex;
     if d.is_active {
-        push(&mut out, CoinType::Dynex, d.hashrate_mh_s, "MH/s", d.shares_accepted, d.shares_rejected, d.is_active, d.uptime_seconds);
+        push(
+            &mut out,
+            CoinType::Dynex,
+            d.hashrate_mh_s,
+            "MH/s",
+            d.shares_accepted,
+            d.shares_rejected,
+            d.is_active,
+            d.uptime_seconds,
+        );
     }
     let q: &QuaiStats = &stats.quai;
     if q.is_active {
-        push(&mut out, CoinType::Quai, q.hashrate_mh_s, "MH/s", q.shares_accepted, q.shares_rejected, q.is_active, q.uptime_seconds);
+        push(
+            &mut out,
+            CoinType::Quai,
+            q.hashrate_mh_s,
+            "MH/s",
+            q.shares_accepted,
+            q.shares_rejected,
+            q.is_active,
+            q.uptime_seconds,
+        );
     }
     let qb: &QubicStats = &stats.qubic;
     if qb.is_active {
-        push(&mut out, CoinType::Qubic, qb.hashrate_kh_s, "kH/s", qb.solutions_found, 0, qb.is_active, qb.uptime_seconds);
+        push(
+            &mut out,
+            CoinType::Qubic,
+            qb.hashrate_kh_s,
+            "kH/s",
+            qb.solutions_found,
+            0,
+            qb.is_active,
+            qb.uptime_seconds,
+        );
     }
     let k: &KaspaStats = &stats.kaspa;
     if k.is_active {
-        push(&mut out, CoinType::Kaspa, k.hashrate_mh_s, "MH/s", k.shares_accepted, k.shares_rejected, k.is_active, k.uptime_seconds);
+        push(
+            &mut out,
+            CoinType::Kaspa,
+            k.hashrate_mh_s,
+            "MH/s",
+            k.shares_accepted,
+            k.shares_rejected,
+            k.is_active,
+            k.uptime_seconds,
+        );
     }
     let m: &MoneroStats = &stats.monero;
     if m.is_active {
-        push(&mut out, CoinType::Monero, m.hashrate_h_s, "H/s", m.shares_accepted, m.shares_rejected, m.is_active, m.uptime_seconds);
+        push(
+            &mut out,
+            CoinType::Monero,
+            m.hashrate_h_s,
+            "H/s",
+            m.shares_accepted,
+            m.shares_rejected,
+            m.is_active,
+            m.uptime_seconds,
+        );
     }
     let v: &VerusStats = &stats.verus;
     if v.is_active {
-        push(&mut out, CoinType::Verus, v.hashrate_h_s, "H/s", v.shares_accepted, v.shares_rejected, v.is_active, v.uptime_seconds);
+        push(
+            &mut out,
+            CoinType::Verus,
+            v.hashrate_h_s,
+            "H/s",
+            v.shares_accepted,
+            v.shares_rejected,
+            v.is_active,
+            v.uptime_seconds,
+        );
     }
 
     out
 }
 
-pub fn envelopes_from_mining_telemetry(source: &str, t: &MiningTelemetry) -> Vec<TelemetryEnvelope> {
+pub fn envelopes_from_mining_telemetry(
+    source: &str,
+    t: &MiningTelemetry,
+) -> Vec<TelemetryEnvelope> {
     envelopes_from_mining_stats(source, &t.stats)
 }
 
@@ -233,7 +304,7 @@ pub fn envelopes_from_mining_telemetry(source: &str, t: &MiningTelemetry) -> Vec
 /// Use tracing for status strings; disk holds structured miner/hw/control events.
 pub fn envelopes_from_wire(source: &str, msg: &WireMsg) -> Vec<TelemetryEnvelope> {
     match msg {
-        WireMsg::MiningTelem(t) => envelopes_from_mining_telemetry(source, t),
+        WireMsg::MiningTelem(t) => envelopes_from_mining_telemetry(source, t.as_ref()),
         WireMsg::Status(_) => Vec::new(),
         WireMsg::GpuSchedulerEvent(e) => vec![envelope_from_gpu_sched(source, e)],
         WireMsg::RotationEvent(e) => vec![envelope_from_rotation(source, e)],
@@ -272,33 +343,35 @@ pub fn envelope_from_rotation(source: &str, e: &RotationEvent) -> TelemetryEnvel
 
 // ── Collector helpers ────────────────────────────────────────────────────────
 
-pub fn node_health(
-    source: &str,
-    stem: &str,
-    coin: &str,
-    height: Option<u64>,
-    target_height: Option<u64>,
-    tick: Option<u64>,
-    epoch: Option<u64>,
-    active: Option<bool>,
-    speed_hs: Option<u64>,
-    threads: Option<u64>,
-    hashrate_mh: Option<f64>,
-) -> TelemetryEnvelope {
+/// Fields for a `node_health` envelope (avoids a long positional arg list).
+#[derive(Debug, Clone, Default)]
+pub struct NodeHealthInput {
+    pub coin: String,
+    pub height: Option<u64>,
+    pub target_height: Option<u64>,
+    pub tick: Option<u64>,
+    pub epoch: Option<u64>,
+    pub active: Option<bool>,
+    pub speed_hs: Option<u64>,
+    pub threads: Option<u64>,
+    pub hashrate_mh: Option<f64>,
+}
+
+pub fn node_health(source: &str, stem: &str, input: NodeHealthInput) -> TelemetryEnvelope {
     TelemetryEnvelope::new(
         source,
         RecordKind::NodeHealth,
         stem,
         TelemetryPayload::NodeHealth {
-            coin: coin.to_string(),
-            height,
-            target_height,
-            tick,
-            epoch,
-            active,
-            speed_hs,
-            threads,
-            hashrate_mh,
+            coin: input.coin,
+            height: input.height,
+            target_height: input.target_height,
+            tick: input.tick,
+            epoch: input.epoch,
+            active: input.active,
+            speed_hs: input.speed_hs,
+            threads: input.threads,
+            hashrate_mh: input.hashrate_mh,
         },
     )
 }
@@ -396,7 +469,14 @@ mod tests {
 
     #[test]
     fn envelope_round_trip_host_hw() {
-        let env = host_hw("collector", "hwmon_telemetry", Some(61.0), Some(55.0), None, None);
+        let env = host_hw(
+            "collector",
+            "hwmon_telemetry",
+            Some(61.0),
+            Some(55.0),
+            None,
+            None,
+        );
         let line = env.to_json_line().unwrap();
         let back: TelemetryEnvelope = serde_json::from_str(&line).unwrap();
         assert_eq!(back.kind, RecordKind::HostHw);
@@ -433,15 +513,11 @@ mod tests {
         let env = node_health(
             "collector",
             "quai_telemetry",
-            "quai",
-            Some(42),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            NodeHealthInput {
+                coin: "quai".into(),
+                height: Some(42),
+                ..Default::default()
+            },
         );
         sink.write_envelope(&env).unwrap();
         let text = std::fs::read_to_string(dir.join("quai_telemetry.jsonl")).unwrap();

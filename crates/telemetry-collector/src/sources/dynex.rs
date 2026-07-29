@@ -1,5 +1,5 @@
-use mining_telemetry_core::node_health;
 use super::TelemetryRecord;
+use mining_telemetry_core::{NodeHealthInput, node_health};
 
 const DYNEX_HEIGHT_URL: &str = "http://127.0.0.1:17336/getheight";
 
@@ -23,14 +23,10 @@ async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::Tel
     Some(node_health(
         "collector",
         "dynex_telemetry",
-        "dynex",
-        height,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        NodeHealthInput {
+            coin: "dynex".into(),
+            height,
+            ..Default::default()
+        },
     ))
 }
