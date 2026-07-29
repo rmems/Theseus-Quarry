@@ -1,0 +1,11 @@
+.codacy/codacy.yaml
+  ai_agent 1-7
+.codacy.yml
+  ai_agent 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c17cf8220df9c605b22413e4d7179900871087c8",
+  "prompts": {}
+}
