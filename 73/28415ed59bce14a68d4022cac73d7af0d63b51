@@ -1,0 +1,13 @@
+scripts/mine-monero.sh
+  ai_agent 37,44-45,56-57,60,63-65
+crates/theseus-mining/src/qubic_miner.rs
+  ai_agent 476
+crates/mining-telemetry-core/src/lib.rs
+  ai_agent 131-133,258-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7328415ed59bce14a68d4022cac73d7af0d63b51",
+  "prompts": {}
+}
