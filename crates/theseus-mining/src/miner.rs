@@ -360,7 +360,7 @@ pub fn generic_stdout_reader(
                 break;
             }
         };
-        stats.update_from_line(brand, &line);
+        let mining_updated = stats.update_from_line(brand, &line);
         let uptime = started.elapsed().as_secs();
         match brand {
             MinerBrand::DynexSolver => stats.dynex.uptime_seconds = uptime,
@@ -372,18 +372,9 @@ pub fn generic_stdout_reader(
             MinerBrand::Unknown => {}
         }
 
-        let is_active = match brand {
-            MinerBrand::DynexSolver => stats.dynex.is_active,
-            MinerBrand::BzMiner => stats.kaspa.is_active,
-            MinerBrand::Xmrig => stats.monero.is_active,
-            MinerBrand::Rigel => stats.quai.is_active,
-            MinerBrand::QubicCore => stats.qubic.is_active,
-            MinerBrand::SRBMiner => stats.monero.is_active,
-            MinerBrand::Hellminer => stats.verus.is_active,
-            MinerBrand::Unknown => false,
-        };
-
-        if is_active {
+        // Emit MinerPerf only when this line changed hashrate/shares — not on
+        // every subsequent banner while is_active is sticky.
+        if mining_updated {
             let mut telem = MiningTelemetry::new();
             telem.stats = stats.clone();
             let _ = tx.send(WireMsg::mining_telem(telem));

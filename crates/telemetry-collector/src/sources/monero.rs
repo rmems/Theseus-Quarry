@@ -46,7 +46,11 @@ async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::Tel
             height: info.get("height").and_then(|v| v.as_u64()),
             target_height: info.get("target_height").and_then(|v| v.as_u64()),
             active: mining.get("active").and_then(|v| v.as_bool()),
-            speed_hs: mining.get("speed").and_then(|v| v.as_u64()),
+            // monerod may return integer or fractional speed (H/s).
+            speed_hs: mining.get("speed").and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_f64().map(|f| f.round().max(0.0) as u64))
+            }),
             threads: mining.get("threads_count").and_then(|v| v.as_u64()),
             ..Default::default()
         },

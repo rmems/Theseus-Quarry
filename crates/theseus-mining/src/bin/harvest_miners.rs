@@ -128,7 +128,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             let mut stats = MiningStats::default();
-            stats.update_from_line(brand, &line);
+            let _ = stats.update_from_line(brand, &line);
 
             if stats.dynex.is_active
                 || stats.quai.is_active

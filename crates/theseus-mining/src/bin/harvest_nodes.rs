@@ -92,7 +92,10 @@ fn main() -> anyhow::Result<()> {
     let out_path = expand_tilde(args.out);
     let monero_path = expand_tilde(args.monero);
     let kaspa_path = expand_tilde(args.kaspa);
-    if let Some(parent) = out_path.parent() {
+    // Bare filenames (`out.jsonl`) have an empty parent; create_dir_all("") fails.
+    if let Some(parent) = out_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
         std::fs::create_dir_all(parent)?;
     }
     let out_file = File::create(&out_path)?;

@@ -127,10 +127,13 @@ impl Default for MiningStats {
 }
 
 impl MiningStats {
-    pub fn update_from_line(&mut self, _brand: MinerBrand, line: &str) {
-        // Every sample must carry a fresh wall-clock timestamp so schema
-        // envelopes do not reuse the first-parse instant for later lines.
-        self.timestamp = chrono::Utc::now();
+    /// Parse one stdout line into cumulative stats.
+    ///
+    /// Returns `true` when a mining field (hashrate or share counter) changed.
+    /// Callers should emit MinerPerf only on `true` so chatty banners do not
+    /// re-sample a sticky `is_active` snapshot with a fresh timestamp.
+    pub fn update_from_line(&mut self, _brand: MinerBrand, line: &str) -> bool {
+        let mut updated = false;
         let lower = line.to_lowercase();
 
         match _brand {
@@ -138,24 +141,30 @@ impl MiningStats {
                 if let Some(hr) = extract_hashrate(&lower, &["kh/s", "mh/s", "gh/s"]) {
                     self.dynex.hashrate_mh_s = hr;
                     self.dynex.is_active = true;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "accepted") {
                     self.dynex.shares_accepted = n;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "rejected") {
                     self.dynex.shares_rejected = n;
+                    updated = true;
                 }
             }
             MinerBrand::BzMiner => {
                 if let Some(hr) = extract_hashrate(&lower, &["mhs", "ghs", "ths"]) {
                     self.kaspa.hashrate_mh_s = hr;
                     self.kaspa.is_active = true;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "acc") {
                     self.kaspa.shares_accepted = n;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "rej") {
                     self.kaspa.shares_rejected = n;
+                    updated = true;
                 }
             }
             MinerBrand::Xmrig | MinerBrand::SRBMiner => {
@@ -163,12 +172,15 @@ impl MiningStats {
                     // extract_hashrate normalizes to MH/s; Monero fields are H/s.
                     self.monero.hashrate_h_s = hr * 1e6;
                     self.monero.is_active = true;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "accepted") {
                     self.monero.shares_accepted = n;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "rejected") {
                     self.monero.shares_rejected = n;
+                    updated = true;
                 }
             }
             MinerBrand::Hellminer => {
@@ -176,24 +188,30 @@ impl MiningStats {
                     // extract_hashrate normalizes to MH/s; Verus fields are H/s.
                     self.verus.hashrate_h_s = hr * 1e6;
                     self.verus.is_active = true;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "accepted") {
                     self.verus.shares_accepted = n;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "rejected") {
                     self.verus.shares_rejected = n;
+                    updated = true;
                 }
             }
             MinerBrand::Rigel => {
                 if let Some(hr) = extract_hashrate(&lower, &["kh/s", "mh/s", "gh/s"]) {
                     self.quai.hashrate_mh_s = hr;
                     self.quai.is_active = true;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "accepted") {
                     self.quai.shares_accepted = n;
+                    updated = true;
                 }
                 if let Some(n) = extract_count_after(line, "rejected") {
                     self.quai.shares_rejected = n;
+                    updated = true;
                 }
             }
             MinerBrand::QubicCore => {
@@ -201,10 +219,17 @@ impl MiningStats {
                     // Qubic uses kH/s; extract_hashrate normalizes to MH/s, convert back
                     self.qubic.hashrate_kh_s = hr * 1000.0;
                     self.qubic.is_active = true;
+                    updated = true;
                 }
             }
             _ => {}
         }
+
+        if updated {
+            // Only advance wall-clock when a real mining field changed.
+            self.timestamp = chrono::Utc::now();
+        }
+        updated
     }
 }
 
@@ -266,12 +291,23 @@ mod hashrate_unit_tests {
     }
 
     #[test]
-    fn update_from_line_refreshes_timestamp() {
+    fn update_from_line_refreshes_timestamp_on_mining_update() {
         let mut stats = MiningStats::default();
         let old_time = chrono::Utc::now() - chrono::Duration::seconds(10);
         stats.timestamp = old_time;
-        stats.update_from_line(MinerBrand::Xmrig, "speed 10s 100.0 h/s");
+        assert!(stats.update_from_line(MinerBrand::Xmrig, "speed 10s 100.0 h/s"));
         assert!(stats.timestamp > old_time);
+    }
+
+    #[test]
+    fn banner_line_does_not_count_as_update() {
+        let mut stats = MiningStats::default();
+        assert!(stats.update_from_line(MinerBrand::Xmrig, "speed 10s 100.0 h/s"));
+        let t1 = stats.timestamp;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(!stats.update_from_line(MinerBrand::Xmrig, "Connected to pool"));
+        assert_eq!(stats.timestamp, t1);
+        assert!(stats.monero.is_active); // sticky, but no new sample signal
     }
 }
 

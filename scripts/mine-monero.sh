@@ -54,12 +54,16 @@ preflight_check() {
         fi
     fi
 
-    if [ ! -f "$bin" ] && [ ! -x "$bin" ]; then
-        echo "ERROR: $bin not found (or not executable)"
+    # Require a regular file that is executable (reject dirs/symlinks-to-dirs).
+    if [ ! -f "$bin" ]; then
+        echo "ERROR: $bin not found (need a regular file, not a directory)"
         exit 1
     fi
-    if [ -f "$bin" ] && [ ! -x "$bin" ]; then
-        chmod +x "$bin"
+    if [ ! -x "$bin" ]; then
+        chmod +x "$bin" || {
+            echo "ERROR: $bin is not executable"
+            exit 1
+        }
     fi
     # Export resolved path so start_miner reuses the same binary (incl. PATH hits).
     if [ -z "${MONERO_BIN:-}" ]; then

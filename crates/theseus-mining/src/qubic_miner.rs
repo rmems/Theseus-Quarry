@@ -22,7 +22,7 @@
 //! |-----------------------|------------------------------------------------------|
 //! | `QUBIC_MINER_CMD`     | (override: full path to qubic-core binary)           |
 //! | `QUBIC_COMPOSE_FILE`  | (override: full path to docker-compose.qubic.yml)    |
-//! | `QUBIC_WALLET_IDENTITY` | required for native mode                           |
+//! | `QUBIC_WALLET_IDENTITY` / `QUBIC_WALLET` / `QUBIC_WALLET_ADDRESS` | required for native mode |
 //! | `QUBIC_MINING_THREADS`  | `4`                                                |
 //! | `QUBIC_PORT`          | `21841`                                              |
 //! | `QUBIC_KNOWN_PEERS`   | from `.env.qubic`                                    |
@@ -472,37 +472,53 @@ fn spawn_native_binary(
         .unwrap_or(DEFAULT_PORT);
     let peers = std::env::var("QUBIC_KNOWN_PEERS").unwrap_or_default();
 
-    let wallet = match std::env::var("QUBIC_WALLET_IDENTITY") {
-        Ok(w) if !w.trim().is_empty() => w.trim().to_string(),
-        _ => {
-            let msg = "QUBIC_WALLET_IDENTITY is required for native mode";
-            eprintln!("[qubic] {msg}");
-            *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
-            let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
-            return None;
-        }
+    // Prefer IDENTITY (qubic-core), then documented QUBIC_WALLET / ADDRESS (qli scripts).
+    let wallet = ["QUBIC_WALLET_IDENTITY", "QUBIC_WALLET", "QUBIC_WALLET_ADDRESS"]
+        .into_iter()
+        .find_map(|k| {
+            std::env::var(k)
+                .ok()
+                .map(|w| w.trim().to_string())
+                .filter(|w| !w.is_empty())
+        });
+    let Some(wallet) = wallet else {
+        let msg = "Qubic wallet required for native mode \
+                   (set QUBIC_WALLET_IDENTITY, QUBIC_WALLET, or QUBIC_WALLET_ADDRESS)";
+        eprintln!("[qubic] {msg}");
+        *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
+        let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
+        return None;
     };
 
     *state.lock().unwrap() = QubicMinerState::Starting;
 
     let mut command = Command::new(&binary);
-    command
-        .arg("--threads")
-        .arg(threads.to_string())
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--identity")
-        .arg(&wallet);
-
-    if aigarth_enabled {
-        command.arg("--gpu");
+    // qli-Client uses --ClientSettings:*; qubic-core uses --identity/--port/--threads.
+    let is_qli = binary.to_ascii_lowercase().contains("qli");
+    if is_qli {
+        let alias = std::env::var("SHIP_WORKER_NAME").unwrap_or_else(|_| "ship-of-theseus".into());
+        command
+            .arg(format!("--ClientSettings:QubicAddress={wallet}"))
+            .arg(format!("--ClientSettings:Alias={alias}"))
+            .arg(format!("--ClientSettings:Trainer:CpuThreads={threads}"))
+            .arg("--ClientSettings:Trainer:PPS=false");
+    } else {
+        command
+            .arg("--threads")
+            .arg(threads.to_string())
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--identity")
+            .arg(&wallet);
+        if aigarth_enabled {
+            command.arg("--gpu");
+        }
+        if !peers.is_empty() {
+            command.arg("--peers").arg(&peers);
+        }
     }
 
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-    if !peers.is_empty() {
-        command.arg("--peers").arg(&peers);
-    }
 
     // Put qubic-core in its own process group.
     #[cfg(unix)]
@@ -600,9 +616,9 @@ fn qubic_stdout_reader(stdout: std::process::ChildStdout, tx: mpsc::Sender<WireM
         .lines()
         .map_while(Result::ok)
     {
-        stats.update_from_line(MinerBrand::QubicCore, &line);
+        let mining_updated = stats.update_from_line(MinerBrand::QubicCore, &line);
 
-        if stats.qubic.is_active || stats.qubic.aigarth_active || stats.qubic.epoch_progress > 0.0 {
+        if mining_updated {
             let mut telem = MiningTelemetry::new();
             telem.stats = stats.clone();
             let _ = tx.send(WireMsg::mining_telem(telem));
