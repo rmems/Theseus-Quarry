@@ -1,0 +1,36 @@
+[package]
+name = "theseus-mining"
+version.workspace = true
+edition.workspace = true
+description = "Background miner daemon — supervises system xmrig/onezerominer binaries"
+default-run = "theseus_mining"
+autobins = false
+
+[dependencies]
+mining-telemetry-core = { workspace = true }
+anyhow     = { workspace = true }
+tokio      = { workspace = true }
+tracing    = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+nix        = { workspace = true }
+regex      = { workspace = true }
+reqwest    = { workspace = true }
+nvml-wrapper = { workspace = true }
+clap        = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenv      = "0.15"
+walkdir = { workspace = true }
+chrono = { workspace = true }
+
+[[bin]]
+name = "theseus_mining"
+path = "src/main.rs"
+
+[[bin]]
+name = "harvest_nodes"
+path = "src/bin/harvest_nodes.rs"
+
+[[bin]]
+name = "harvest_miners"
+path = "src/bin/harvest_miners.rs"

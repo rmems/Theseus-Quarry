@@ -1,0 +1,60 @@
+# =============================================================================
+# Theseus-Quarry — source-only repo. Runtime, chain data, and secrets stay local.
+# =============================================================================
+
+# Large / local runtime (miners, nodes, blockchain DBs — often 100GB+)
+/binaries/
+/target/
+/Cache/
+/Autotune/
+/logs/
+/data/logs/*
+!data/logs/.gitkeep
+/data/telemetry/
+/data/harvested/
+
+# Secrets & local env (never commit real values)
+.env
+.env.*
+!.env.example
+binaries.env
+*.local.env
+.env.local
+.env.qubic
+
+# Defense-in-depth: wallet material and chain keys if paths ever change
+**/seed.txt
+**/identity.txt
+**/*.keys
+**/*privkey*
+**/rpc_ssl.key
+**/rpc_ssl.crt
+**/*.mdb
+**/wallet/seed.txt
+**/wallet/identity.txt
+**/wallet/*.keys
+
+# Machine-local config copies (canonical: ~/.config/theseus-quarry/)
+.ocean.env
+ocean.env
+
+# IDE / agent local
+.idea/
+.qwen/
+.kilo/
+.mimocode/
+.opencode/
+.codex/
+.cursor/
+.zed/
+.claude/
+.grok/
+
+# Duplicate / legacy under crate tree
+/crates/theseus-mining/legacy/
+
+# Logs, PIDs, lockfiles from miners
+*.log
+*.pid
+*.lock
+!Cargo.lock

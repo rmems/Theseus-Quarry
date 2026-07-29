@@ -1,0 +1,22 @@
+[package]
+name = "telemetry-collector"
+version.workspace = true
+edition.workspace = true
+description = "Hardware telemetry collector — polls mining nodes and system sensors, writes JSONL"
+
+[[bin]]
+name = "telemetry-collector"
+path = "src/main.rs"
+
+[dependencies]
+mining-telemetry-core = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+shellexpand = "3"
