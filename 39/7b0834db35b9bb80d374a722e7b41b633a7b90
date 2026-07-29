@@ -1,0 +1,11 @@
+.github/workflows/code_quality.yml
+  ai_agent 1-36
+README.md
+  ai_agent 103-104,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "397b0834db35b9bb80d374a722e7b41b633a7b90",
+  "prompts": {}
+}
