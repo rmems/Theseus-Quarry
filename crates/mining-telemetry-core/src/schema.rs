@@ -236,7 +236,9 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
         );
     }
     let qb: &QubicStats = &stats.qubic;
-    if qb.is_active {
+    // Require a mining signal (hashrate or solutions). Tick-only healthchecks
+    // must not become zero-hashrate MinerPerf envelopes.
+    if qb.is_active && (qb.hashrate_kh_s > 0.0 || qb.solutions_found > 0) {
         push(
             &mut out,
             CoinType::Qubic,
@@ -247,6 +249,18 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
             qb.is_active,
             qb.uptime_seconds,
         );
+    } else if qb.current_tick > 0 {
+        let mut env = node_health(
+            source,
+            "qubic_telemetry",
+            NodeHealthInput {
+                coin: "qubic".into(),
+                tick: Some(u64::from(qb.current_tick)),
+                ..Default::default()
+            },
+        );
+        env.timestamp = ts;
+        out.push(env);
     }
     let k: &KaspaStats = &stats.kaspa;
     if k.is_active {

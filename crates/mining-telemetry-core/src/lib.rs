@@ -210,14 +210,13 @@ fn extract_hashrate(line: &str, suffixes: &[&str]) -> Option<f64> {
             && let Some(caps) = re.captures(line)
             && let Ok(val) = caps.get(1)?.as_str().parse::<f64>()
         {
+            // Normalize all rates to MH/s.
             let multiplier = match *suffix {
                 "h/s" => 1e-6,
                 "kh/s" => 1e-3,
-                "mh/s" => 1.0,
-                "gh/s" => 1e3,
-                "ths" => 1e3,
-                "mhs" => 1.0,
-                "ghs" => 1e3,
+                "mh/s" | "mhs" => 1.0,
+                "gh/s" | "ghs" => 1e3,
+                "ths" => 1e6, // 1 TH/s = 1_000_000 MH/s
                 _ => 1.0,
             };
             return Some(val * multiplier);

@@ -27,11 +27,24 @@ struct Args {
     kaspa: PathBuf,
     #[arg(long, default_value = "binaries/mining/nodes/xmr/chain/bitmonero.log")]
     monero: PathBuf,
-    #[arg(
-        long,
-        default_value = "~/Spikenaut-Vault/telemetry/node_sync_harvest.jsonl"
-    )]
+    #[arg(long, default_value = "data/telemetry/node_sync_harvest.jsonl")]
     out: PathBuf,
+}
+
+/// Expand a leading `~/` using `$HOME` (std::fs does not shell-expand tildes).
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    if s == "~"
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home);
+    }
+    path
 }
 
 // Mirrors the fields train_snn actually reads from NeuromorphicSnapshot.
@@ -76,7 +89,11 @@ struct Telemetry {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let out_file = File::create(&args.out)?;
+    let out_path = expand_tilde(args.out);
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let out_file = File::create(&out_path)?;
     let mut writer = BufWriter::new(out_file);
     let mut total = 0usize;
 
@@ -185,7 +202,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     writer.flush()?;
-    println!("Harvested {} total records → {}", total, args.out.display());
+    println!("Harvested {} total records → {}", total, out_path.display());
     Ok(())
 }
 

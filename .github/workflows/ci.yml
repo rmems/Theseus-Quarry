@@ -13,6 +13,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -21,13 +24,24 @@ env:
 jobs:
   check:
     name: fmt · clippy · test
-    # ShipOfTheseus-class runner: GPU host, CUDA/Docker capable
+    # Private repo: trusted self-hosted runner (labels: self-hosted, Linux, X64, ryzen).
     runs-on: [self-hosted, Linux, X64, ryzen]
     timeout-minutes: 45
 
     steps:
+      - name: Sanitize workspace (self-hosted)
+        run: |
+          set -euo pipefail
+          # Prior docker smoke as root can leave unwritable target/ and break checkout clean.
+          if [ -d target ]; then
+            echo "Clearing prior target/ via alpine container (handles root-owned files)..."
+            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Ensure rustup (prefer over distro rustc)
         run: |
@@ -68,25 +82,35 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
   qodana:
     name: qodana · rust
     runs-on: [self-hosted, Linux, X64, ryzen]
     timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: write
 
     steps:
+      - name: Sanitize workspace (self-hosted)
+        run: |
+          set -euo pipefail
+          if [ -d target ]; then
+            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Qodana Rust scan
         env:
-          # Prefer local EAP image already on the runner; qodana.yaml sets linter
           QODANA_IMAGE: jetbrains/qodana-rust:2026.1-eap
         run: |
           set -euo pipefail

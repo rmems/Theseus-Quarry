@@ -12,6 +12,7 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - "rust-toolchain.toml"
+      - ".dockerignore"
   pull_request:
     branches: [main]
     paths:
@@ -21,10 +22,14 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - "rust-toolchain.toml"
+      - ".dockerignore"
 
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   IMAGE_TAG: theseus-quarry:dev
@@ -36,8 +41,17 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Sanitize workspace (self-hosted)
+        run: |
+          set -euo pipefail
+          if [ -d target ]; then
+            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Docker version
         run: docker version
@@ -51,8 +65,14 @@ jobs:
 
       - name: Smoke — cargo test inside image
         run: |
+          set -euo pipefail
+          # Do not write root-owned target/ into the bind-mounted workspace.
+          # Use a named volume for CARGO_TARGET_DIR instead.
           docker run --rm \
-            -v "$PWD:/workspace" \
+            -v "$PWD:/workspace:ro" \
+            -v theseus-quarry-cargo-target:/tmp/target \
+            -e CARGO_TARGET_DIR=/tmp/target \
             -w /workspace \
+            --user "$(id -u):$(id -g)" \
             "${IMAGE_TAG}" \
             cargo test --workspace

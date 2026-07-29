@@ -90,13 +90,37 @@ pub fn ship_work_dir() -> String {
     format!("{home}/Theseus-Quarry")
 }
 
-/// True if `path` is a non-empty regular file (skips 0-byte placeholders / text stubs).
+/// True if `path` is a usable executable (not an empty/text stub).
+///
+/// Rejects zero-byte files and tiny ASCII placeholders (e.g. "Not Found").
+/// Accepts small shell launch wrappers when they are executable.
 pub fn is_usable_binary(path: &str) -> bool {
     let p = std::path::Path::new(path);
-    matches!(
-        std::fs::metadata(p),
-        Ok(meta) if meta.is_file() && meta.len() > 1024
-    )
+    let Ok(meta) = std::fs::metadata(p) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return false;
+        }
+    }
+    // Known empty/placeholder stubs are tiny text files.
+    if meta.len() <= 64
+        && let Ok(bytes) = std::fs::read(p)
+    {
+        let textish = bytes
+            .iter()
+            .all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace());
+        if textish {
+            return false;
+        }
+    }
+    true
 }
 
 /// Detect a binary: env override → canonical paths under repo → local paths → `which`.
@@ -345,9 +369,28 @@ mod tests {
         let tiny = dir.join("stub");
         std::fs::write(&tiny, b"x").unwrap();
         assert!(!is_usable_binary(tiny.to_str().unwrap()));
+        // Tiny executable ASCII placeholder must still be rejected.
+        let tiny_exe = dir.join("stub_exe");
+        std::fs::write(&tiny_exe, b"Not Found\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&tiny_exe).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&tiny_exe, perms).unwrap();
+        }
+        assert!(!is_usable_binary(tiny_exe.to_str().unwrap()));
+        // Non-empty binary-ish payload + executable bit is accepted.
         let fat = dir.join("realish");
         let mut f = std::fs::File::create(&fat).unwrap();
         f.write_all(&vec![0u8; 2048]).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&fat).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&fat, perms).unwrap();
+        }
         assert!(is_usable_binary(fat.to_str().unwrap()));
         let _ = std::fs::remove_dir_all(&dir);
     }
