@@ -37,8 +37,12 @@ env:
 jobs:
   build:
     name: build · smoke test
+    # Do not run the persistent self-hosted Docker host for fork PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ryzen]
     timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: Sanitize workspace (self-hosted)
@@ -49,7 +53,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -82,3 +86,11 @@ jobs:
             --user "${uid}:${gid}" \
             "${IMAGE_TAG}" \
             cargo test --workspace --locked
+
+      - name: Cleanup Docker artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          docker image rm -f "${IMAGE_TAG}" || true
+          docker image prune -f || true
+          docker builder prune -f || true

@@ -25,8 +25,13 @@ jobs:
   check:
     name: fmt · clippy · test
     # Private repo: trusted self-hosted runner (labels: self-hosted, Linux, X64, ryzen).
+    # Fork PRs are not executed on the persistent self-hosted host; trusted in-repo PRs still run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ryzen]
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: write
 
     steps:
       - name: Sanitize workspace (self-hosted)
@@ -39,7 +44,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -59,7 +64,7 @@ jobs:
           rustup --version
 
       - name: Install latest stable Rust (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: rustfmt, clippy, rust-src
 
@@ -74,7 +79,7 @@ jobs:
           rustup component list --installed | grep -E 'rustfmt|clippy|rust-src' || true
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: theseus-quarry-ci
 
@@ -89,10 +94,12 @@ jobs:
 
   qodana:
     name: qodana · rust
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ryzen]
     timeout-minutes: 60
     permissions:
       contents: read
+      actions: write
       checks: write
 
     steps:
@@ -104,7 +111,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -137,7 +144,7 @@ jobs:
 
       - name: Upload Qodana SARIF
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: qodana-sarif
           path: |

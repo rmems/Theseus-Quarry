@@ -104,7 +104,14 @@ fn main() -> anyhow::Result<()> {
         let mut prev_height = 0u64;
         let mut prev_ts_secs = 0f64;
 
-        for line in reader.lines().map_while(Result::ok) {
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[harvest] monero line read error: {e}");
+                    continue;
+                }
+            };
             if !line.contains("Synced ") {
                 continue;
             }
@@ -159,7 +166,14 @@ fn main() -> anyhow::Result<()> {
     if args.kaspa.exists() {
         let reader = BufReader::new(File::open(&args.kaspa)?);
 
-        for line in reader.lines().map_while(Result::ok) {
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[harvest] kaspa line read error: {e}");
+                    continue;
+                }
+            };
             if !line.contains("Processed") || !line.contains("blocks") {
                 continue;
             }

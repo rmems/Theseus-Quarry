@@ -6,6 +6,22 @@ use clap::Parser;
 use mining_telemetry_core::{CoinType, MinerBrand, MiningStats};
 use walkdir::WalkDir;
 
+/// Expand a leading `~/` using `$HOME` (std::fs does not shell-expand tildes).
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    if s == "~"
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home);
+    }
+    path
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(long, default_value = "binaries/mining")]
@@ -68,7 +84,8 @@ fn detect_brand(line: &str) -> MinerBrand {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    fs::create_dir_all(&args.out_dir)?;
+    let out_dir = expand_tilde(args.out_dir);
+    fs::create_dir_all(&out_dir)?;
 
     let mut total_records = 0usize;
 
@@ -92,7 +109,14 @@ fn main() -> anyhow::Result<()> {
         let reader = BufReader::new(File::open(path)?);
         let mut brand = MinerBrand::Unknown;
 
-        for line in reader.lines().map_while(Result::ok) {
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[harvest] {} line read error: {e}", path.display());
+                    continue;
+                }
+            };
             if brand == MinerBrand::Unknown {
                 brand = detect_brand(&line);
             }
