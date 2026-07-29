@@ -1,5 +1,5 @@
-# Source-only CI: fmt, clippy, test on self-hosted GPU-capable runner.
-# Uses latest stable Rust (dtolnay/rust-toolchain@stable tracks current stable).
+# Source-only CI: Rust quality + Qodana on self-hosted GPU-capable runner.
+# Latest stable Rust (dtolnay/rust-toolchain@stable + rust-toolchain.toml).
 
 name: CI
 
@@ -52,3 +52,51 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
+
+  qodana:
+    name: qodana · rust
+    runs-on: [self-hosted, Linux, X64, ryzen]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Qodana Rust scan
+        env:
+          # Prefer local EAP image already on the runner; qodana.yaml sets linter
+          QODANA_IMAGE: jetbrains/qodana-rust:2026.1-eap
+        run: |
+          set -euo pipefail
+          RESULTS="${{ runner.temp }}/qodana-results"
+          mkdir -p "$RESULTS"
+
+          if command -v qodana >/dev/null 2>&1; then
+            qodana scan \
+              --config qodana.yaml \
+              --image "${QODANA_IMAGE}" \
+              --project-dir . \
+              --results-dir "$RESULTS" \
+              --print-problems \
+              --skip-pull
+          else
+            echo "qodana CLI not on PATH; running via Docker image"
+            docker run --rm \
+              -v "$PWD:/data/project" \
+              -v "$RESULTS:/data/results" \
+              "${QODANA_IMAGE}" \
+              --config qodana.yaml \
+              --print-problems
+          fi
+
+      - name: Upload Qodana SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qodana-sarif
+          path: |
+            ${{ runner.temp }}/qodana-results/qodana.sarif.json
+            ${{ runner.temp }}/qodana-results/qodana-short.sarif.json
+          if-no-files-found: warn

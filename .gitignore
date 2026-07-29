@@ -5,6 +5,8 @@
 # Large / local runtime (miners, nodes, blockchain DBs — often 100GB+)
 /binaries/
 /target/
+/.qodana/
+
 /Cache/
 /Autotune/
 /logs/

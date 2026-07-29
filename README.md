@@ -100,8 +100,14 @@ GitHub Actions runs on a **self-hosted** runner with labels:
 
 | Workflow | What it does |
 |----------|----------------|
-| `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace` |
+| `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace`; **Qodana Rust** (`qodana.yaml`) |
 | `Docker` | Build `.devcontainer/Dockerfile`, smoke `cargo test` in the image |
+
+Local Qodana (optional):
+
+```bash
+qodana scan --config qodana.yaml --image jetbrains/qodana-rust:2026.1-eap --skip-pull --print-problems
+```
 
 On the runner host (e.g. ShipOfTheseus):
 
