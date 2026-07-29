@@ -42,7 +42,8 @@ preflight_check() {
         elif [ -f "$REPO_ROOT/binaries/mining/xmrig/xmrig" ]; then
             bin="$REPO_ROOT/binaries/mining/xmrig/xmrig"
         elif bin="$(command -v xmrig 2>/dev/null)" && [ -n "$bin" ]; then
-            # command -v yields an absolute path; keep it for -f/-x checks.
+            :
+
         else
             echo "ERROR: No Monero miner found"
             echo "Set MONERO_BIN in .env, or place a binary at one of:"

@@ -268,10 +268,10 @@ mod hashrate_unit_tests {
     #[test]
     fn update_from_line_refreshes_timestamp() {
         let mut stats = MiningStats::default();
-        let t0 = stats.timestamp;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        let old_time = chrono::Utc::now() - chrono::Duration::seconds(10);
+        stats.timestamp = old_time;
         stats.update_from_line(MinerBrand::Xmrig, "speed 10s 100.0 h/s");
-        assert!(stats.timestamp > t0);
+        assert!(stats.timestamp > old_time);
     }
 }
 
