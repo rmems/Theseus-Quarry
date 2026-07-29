@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install latest stable Rust (edition 2024 workspace)
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
         --default-toolchain stable \
         --profile minimal \
@@ -26,7 +27,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
         --component clippy \
     && rustup default stable \
     && rustc --version \
-    && cargo --version
+    && cargo --version \
+    && chown -R vscode:vscode $CARGO_HOME $RUSTUP_HOME
 
 WORKDIR /workspace
 
