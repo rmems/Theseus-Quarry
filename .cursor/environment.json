@@ -1,0 +1,8 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "install": "rustup show && cargo fetch --locked",
+  "start": "sudo service docker start || (sudo dockerd >/tmp/dockerd.log 2>&1 & sleep 2)"
+}

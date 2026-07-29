@@ -146,12 +146,16 @@ mod tests {
     #[test]
     fn detect_binary_env_override() {
         crate::miner::with_env_lock(|| {
+            let prior = std::env::var("MONERO_MINER_CMD").ok();
             unsafe {
                 std::env::set_var("MONERO_MINER_CMD", "/custom/path/xmrig");
             }
             let result = detect_monero_binary();
             unsafe {
-                std::env::remove_var("MONERO_MINER_CMD");
+                match prior {
+                    Some(v) => std::env::set_var("MONERO_MINER_CMD", v),
+                    None => std::env::remove_var("MONERO_MINER_CMD"),
+                }
             }
             assert_eq!(result, Some("/custom/path/xmrig".to_string()));
         });

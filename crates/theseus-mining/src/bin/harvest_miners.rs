@@ -113,7 +113,14 @@ fn main() -> anyhow::Result<()> {
             let line = match line_result {
                 Ok(l) => l,
                 Err(e) => {
+<<<<<<< HEAD
                     eprintln!("[harvest] {} line read error: {e}", path.display());
+=======
+                    eprintln!(
+                        "[harvest] skipping unreadable line in {}: {e}",
+                        path.display()
+                    );
+>>>>>>> d1a064a (fix: address PR bot findings and add Cursor Cloud Docker env)
                     continue;
                 }
             };

@@ -87,6 +87,7 @@ jobs:
             "${IMAGE_TAG}" \
             cargo test --workspace --locked
 
+<<<<<<< HEAD
       - name: Cleanup Docker artifacts
         if: always()
         run: |
@@ -94,3 +95,12 @@ jobs:
           docker image rm -f "${IMAGE_TAG}" || true
           docker image prune -f || true
           docker builder prune -f || true
+=======
+      - name: Prune dangling Docker resources
+        if: always()
+        run: |
+          set -euo pipefail
+          # Bound disk growth on the persistent self-hosted runner.
+          docker image prune -f
+          docker builder prune -f --filter until=168h || true
+>>>>>>> d1a064a (fix: address PR bot findings and add Cursor Cloud Docker env)

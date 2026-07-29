@@ -16,8 +16,13 @@ env:
 
 jobs:
   qodana:
+<<<<<<< HEAD
     # Skip Cloud scans when the Qodana token is not configured (forks, Dependabot, etc.).
     if: env.QODANA_TOKEN != ''
+=======
+    # Forks / Dependabot do not receive repository secrets — skip rather than fail.
+    if: ${{ github.event_name != 'pull_request' || secrets.QODANA_TOKEN != '' }}
+>>>>>>> d1a064a (fix: address PR bot findings and add Cursor Cloud Docker env)
     runs-on: ubuntu-latest
     permissions:
       contents: read

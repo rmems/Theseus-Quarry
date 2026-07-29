@@ -419,8 +419,40 @@ impl UnifiedMining {
         if old_algo.runs_dynex()
             && !new_algo.runs_dynex()
             && let Some(ref scheduler) = self.scheduler
+            && !scheduler.verify_vram_freed(Duration::from_secs(5))
         {
-            scheduler.verify_vram_freed(Duration::from_secs(5));
+            eprintln!(
+                "[unified-mining] VRAM not freed after stopping {}; aborting switch to {}",
+                old_algo, new_algo
+            );
+            // Restore miners for the previous algo rather than starting under pressure.
+            self.algo = old_algo;
+            self.dynex = if old_algo.runs_dynex() {
+                Some(DynexMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            self.quai = if old_algo.runs_quai() {
+                Some(QuaiMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            self.qubic = if old_algo.runs_qubic() {
+                Some(QubicMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            self.kaspa = if old_algo.runs_kaspa() {
+                Some(KaspaMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            if old_algo.runs_dynex() && self.scheduler.is_none() {
+                self.scheduler = Some(GpuScheduler::new(self.sched_config.clone()));
+            }
+            self.gpu_mining_paused = false;
+            self.start();
+            return false;
         }
 
         // 3. Reconstruct miners for new algo.

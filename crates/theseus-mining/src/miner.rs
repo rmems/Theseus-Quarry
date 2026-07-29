@@ -92,7 +92,7 @@ pub fn ship_work_dir() -> String {
 
 /// True if `path` is a usable executable (not an empty/text stub).
 ///
-/// Rejects zero-byte files and tiny ASCII placeholders (e.g. "Not Found").
+/// Rejects zero-byte files and known ASCII placeholders (e.g. "Not Found").
 /// Accepts small shell launch wrappers when they are executable.
 pub fn is_usable_binary(path: &str) -> bool {
     let p = std::path::Path::new(path);
@@ -109,14 +109,18 @@ pub fn is_usable_binary(path: &str) -> bool {
             return false;
         }
     }
-    // Known empty/placeholder stubs are tiny text files.
+    // Reject known download/placeholder stubs (tiny HTTP error bodies, etc.).
     if meta.len() <= 64
         && let Ok(bytes) = std::fs::read(p)
     {
-        let textish = bytes
-            .iter()
-            .all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace());
-        if textish {
+        let text = String::from_utf8_lossy(&bytes);
+        let trimmed = text.trim();
+        let placeholder = trimmed.eq_ignore_ascii_case("not found")
+            || trimmed.eq_ignore_ascii_case("404 not found")
+            || trimmed.eq_ignore_ascii_case("forbidden")
+            || trimmed.eq_ignore_ascii_case("error")
+            || trimmed.is_empty();
+        if placeholder {
             return false;
         }
     }
@@ -229,7 +233,17 @@ fn supervisor_loop(
 
             MinerCommand::Stop => {
                 paused_for_chat = false;
-                kill_process_group(child_pid.take(), config.kill_timeout);
+                // Reaper may already have marked Idle after natural exit —
+                // only signal if this PID is still the live Running process.
+                let live = matches!(
+                    *state.lock().unwrap(),
+                    MinerState::Running { pid } if Some(pid) == child_pid
+                );
+                if live {
+                    kill_process_group(child_pid.take(), config.kill_timeout);
+                } else {
+                    child_pid = None;
+                }
                 *state.lock().unwrap() = MinerState::Idle;
                 let _ = telem_tx.send(WireMsg::Status(format!(
                     "{}miner stopped",
@@ -239,7 +253,15 @@ fn supervisor_loop(
 
             MinerCommand::YieldForChat(ref model) => {
                 eprintln!("{}yielding for {model}", config.log_prefix);
-                kill_process_group(child_pid.take(), config.kill_timeout);
+                let live = matches!(
+                    *state.lock().unwrap(),
+                    MinerState::Running { pid } if Some(pid) == child_pid
+                );
+                if live {
+                    kill_process_group(child_pid.take(), config.kill_timeout);
+                } else {
+                    child_pid = None;
+                }
                 *state.lock().unwrap() = MinerState::Idle;
                 paused_for_chat = true;
                 let _ = telem_tx.send(WireMsg::Status(format!(
@@ -324,16 +346,31 @@ pub fn generic_stdout_reader(
     brand: MinerBrand,
     name: &str,
 ) {
+    let started = std::time::Instant::now();
+    // Cumulative per-miner stats across lines (hashrate + share counters).
+    let mut stats = MiningStats::default();
+
     for line_result in std::io::BufReader::new(stdout).lines() {
         let line = match line_result {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[{name}] stdout read error: {e}");
-                continue;
+                // Treat pipe/read failure like end-of-stream — continuing would
+                // busy-spin on a broken descriptor.
+                eprintln!("[{name}] stdout read error (ending reader): {e}");
+                break;
             }
         };
-        let mut stats = MiningStats::default();
         stats.update_from_line(brand, &line);
+        let uptime = started.elapsed().as_secs();
+        match brand {
+            MinerBrand::DynexSolver => stats.dynex.uptime_seconds = uptime,
+            MinerBrand::BzMiner => stats.kaspa.uptime_seconds = uptime,
+            MinerBrand::Xmrig | MinerBrand::SRBMiner => stats.monero.uptime_seconds = uptime,
+            MinerBrand::Rigel => stats.quai.uptime_seconds = uptime,
+            MinerBrand::QubicCore => stats.qubic.uptime_seconds = uptime,
+            MinerBrand::Hellminer => stats.verus.uptime_seconds = uptime,
+            MinerBrand::Unknown => {}
+        }
 
         let is_active = match brand {
             MinerBrand::DynexSolver => stats.dynex.is_active,
@@ -348,7 +385,7 @@ pub fn generic_stdout_reader(
 
         if is_active {
             let mut telem = MiningTelemetry::new();
-            telem.stats = stats;
+            telem.stats = stats.clone();
             let _ = tx.send(WireMsg::mining_telem(telem));
         } else {
             let _ = tx.send(WireMsg::Status(format!("[{name}] {line}")));
@@ -369,7 +406,7 @@ mod tests {
         let tiny = dir.join("stub");
         std::fs::write(&tiny, b"x").unwrap();
         assert!(!is_usable_binary(tiny.to_str().unwrap()));
-        // Tiny executable ASCII placeholder must still be rejected.
+        // Known placeholder content must still be rejected.
         let tiny_exe = dir.join("stub_exe");
         std::fs::write(&tiny_exe, b"Not Found\n").unwrap();
         #[cfg(unix)]
@@ -380,6 +417,17 @@ mod tests {
             std::fs::set_permissions(&tiny_exe, perms).unwrap();
         }
         assert!(!is_usable_binary(tiny_exe.to_str().unwrap()));
+        // Short executable shell wrappers are accepted.
+        let wrapper = dir.join("tiny_wrap");
+        std::fs::write(&wrapper, b"#!/bin/sh\nexec miner \"$@\"\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&wrapper).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&wrapper, perms).unwrap();
+        }
+        assert!(is_usable_binary(wrapper.to_str().unwrap()));
         // Non-empty binary-ish payload + executable bit is accepted.
         let fat = dir.join("realish");
         let mut f = std::fs::File::create(&fat).unwrap();

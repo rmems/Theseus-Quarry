@@ -111,12 +111,16 @@ mod tests {
     #[test]
     fn detect_binary_env_override() {
         crate::miner::with_env_lock(|| {
+            let prior = std::env::var("KASPA_MINER_CMD").ok();
             unsafe {
                 std::env::set_var("KASPA_MINER_CMD", "/custom/path/bzminer");
             }
             let result = detect_kaspa_binary();
             unsafe {
-                std::env::remove_var("KASPA_MINER_CMD");
+                match prior {
+                    Some(v) => std::env::set_var("KASPA_MINER_CMD", v),
+                    None => std::env::remove_var("KASPA_MINER_CMD"),
+                }
             }
             assert_eq!(result.as_deref(), Some("/custom/path/bzminer"));
         });
