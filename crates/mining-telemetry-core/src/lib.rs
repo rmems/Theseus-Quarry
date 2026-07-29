@@ -128,6 +128,9 @@ impl Default for MiningStats {
 
 impl MiningStats {
     pub fn update_from_line(&mut self, _brand: MinerBrand, line: &str) {
+        // Every sample must carry a fresh wall-clock timestamp so schema
+        // envelopes do not reuse the first-parse instant for later lines.
+        self.timestamp = chrono::Utc::now();
         let lower = line.to_lowercase();
 
         match _brand {
@@ -251,6 +254,24 @@ mod hashrate_unit_tests {
         stats.update_from_line(MinerBrand::Hellminer, "hashrate: 2.5 kh/s");
         assert!(stats.verus.is_active);
         assert!((stats.verus.hashrate_h_s - 2500.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn ths_token_normalizes_to_mhs() {
+        // BzMiner path accepts "ths" and stores MH/s (1 TH/s = 1e6 MH/s).
+        let mut stats = MiningStats::default();
+        stats.update_from_line(MinerBrand::BzMiner, "hashrate 1.5 ths");
+        assert!(stats.kaspa.is_active);
+        assert!((stats.kaspa.hashrate_mh_s - 1.5e6).abs() < 1.0);
+    }
+
+    #[test]
+    fn update_from_line_refreshes_timestamp() {
+        let mut stats = MiningStats::default();
+        let t0 = stats.timestamp;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        stats.update_from_line(MinerBrand::Xmrig, "speed 10s 100.0 h/s");
+        assert!(stats.timestamp > t0);
     }
 }
 

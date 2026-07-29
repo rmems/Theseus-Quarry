@@ -34,15 +34,15 @@ preflight_check() {
         exit 1
     fi
 
-    # Check binary (SRBMiner first, then xmrig fallback)
+    # Check binary (SRBMiner first, then xmrig fallback, then PATH)
     local bin="${MONERO_BIN:-}"
     if [ -z "$bin" ]; then
         if [ -f "$REPO_ROOT/$BINARY_DEFAULT" ]; then
             bin="$REPO_ROOT/$BINARY_DEFAULT"
         elif [ -f "$REPO_ROOT/binaries/mining/xmrig/xmrig" ]; then
             bin="$REPO_ROOT/binaries/mining/xmrig/xmrig"
-        elif command -v xmrig &>/dev/null; then
-            bin="xmrig"
+        elif bin="$(command -v xmrig 2>/dev/null)" && [ -n "$bin" ]; then
+            # command -v yields an absolute path; keep it for -f/-x checks.
         else
             echo "ERROR: No Monero miner found"
             echo "Set MONERO_BIN in .env, or place a binary at one of:"
@@ -53,12 +53,16 @@ preflight_check() {
         fi
     fi
 
-    if [ ! -f "$bin" ]; then
-        echo "ERROR: $bin not found"
+    if [ ! -f "$bin" ] && [ ! -x "$bin" ]; then
+        echo "ERROR: $bin not found (or not executable)"
         exit 1
     fi
-    if [ ! -x "$bin" ]; then
+    if [ -f "$bin" ] && [ ! -x "$bin" ]; then
         chmod +x "$bin"
+    fi
+    # Export resolved path so start_miner reuses the same binary (incl. PATH hits).
+    if [ -z "${MONERO_BIN:-}" ]; then
+        export MONERO_BIN="$bin"
     fi
 }
 

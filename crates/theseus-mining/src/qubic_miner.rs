@@ -473,7 +473,7 @@ fn spawn_native_binary(
     let peers = std::env::var("QUBIC_KNOWN_PEERS").unwrap_or_default();
 
     let wallet = match std::env::var("QUBIC_WALLET_IDENTITY") {
-        Ok(w) if !w.trim().is_empty() => w,
+        Ok(w) if !w.trim().is_empty() => w.trim().to_string(),
         _ => {
             let msg = "QUBIC_WALLET_IDENTITY is required for native mode";
             eprintln!("[qubic] {msg}");
