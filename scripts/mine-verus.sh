@@ -25,7 +25,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for VRSC_WALLET_ADDRESS)
     local wallet="${VRSC_WALLET:-${VRSC_WALLET_ADDRESS:-}}"
@@ -44,7 +44,7 @@ preflight_check() {
             bin="$REPO_ROOT/$FALLBACK_BINARY"
         else
             echo "ERROR: No Verus miner found"
-            echo "Set VRSC_BIN in .env or place hellminer/SRBMiner in binaries/mining/"
+            echo "Set VRSC_BIN in .env or place ${BINARY_NAME}/SRBMiner in binaries/mining/"
             exit 1
         fi
     fi

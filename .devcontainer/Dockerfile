@@ -11,11 +11,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
+        cmake \
         curl \
         git \
-        pkg-config \
         libssl-dev \
-        cmake \
+        pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install latest stable Rust (edition 2024 workspace)
@@ -28,7 +28,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && rustup default stable \
     && rustc --version \
     && cargo --version \
-    && chown -R vscode:vscode $CARGO_HOME $RUSTUP_HOME
+    && chown -R vscode:vscode "${CARGO_HOME}" "${RUSTUP_HOME}"
 
 WORKDIR /workspace
 

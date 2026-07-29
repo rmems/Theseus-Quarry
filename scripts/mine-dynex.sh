@@ -26,7 +26,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for SHIP_WALLET)
     local wallet="${DYNEX_WALLET:-${SHIP_WALLET:-}}"
@@ -57,8 +57,8 @@ resolve_dynex_bin() {
         echo "$REPO_ROOT/$BINARY_FALLBACK"
         return 0
     fi
-    echo "ERROR: onezerominer not found under binaries/mining/" >&2
-    echo "Set DYNEX_BIN or place the binary at $BINARY_DEFAULT" >&2
+    echo "ERROR: ${BINARY_NAME} not found under binaries/mining/" >&2
+    echo "Set DYNEX_BIN or place ${BINARY_NAME} at $BINARY_DEFAULT" >&2
     return 1
 }
 

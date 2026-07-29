@@ -116,7 +116,7 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 

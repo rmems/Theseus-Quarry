@@ -25,7 +25,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for MONERO_WALLET_ADDRESS)
     local wallet="${MONERO_WALLET:-${MONERO_WALLET_ADDRESS:-}}"
@@ -46,7 +46,7 @@ preflight_check() {
             bin="xmrig"
         else
             echo "ERROR: No Monero miner found"
-            echo "Set MONERO_BIN in .env or place SRBMiner/xmrig in binaries/mining/"
+            echo "Set MONERO_BIN in .env or place ${BINARY_NAME}/xmrig in binaries/mining/"
             exit 1
         fi
     fi

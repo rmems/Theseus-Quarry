@@ -10,60 +10,53 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/local/cargo/bin:$PATH \
     CARGO_TERM_COLOR=always
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+########################################################
+# Base packages + nested Docker + agent user + Rust
+# Single RUN keeps radarlint happy (S7031) and reduces layers.
+########################################################
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
         cmake \
         curl \
+        fuse-overlayfs \
         git \
         gnupg \
         iptables \
         libssl-dev \
         pkg-config \
         sudo \
-        fuse-overlayfs \
-    && rm -rf /var/lib/apt/lists/*
-
-########################################################
-# Docker (nested) — fuse-overlayfs + iptables-legacy
-########################################################
-
-RUN install -m 0755 -d /etc/apt/keyrings \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -m 0755 -d /etc/apt/keyrings \
     && curl --retry 3 --retry-delay 5 -fsSL https://download.docker.com/linux/ubuntu/gpg \
         | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && arch="$(dpkg --print-architecture)" \
+    && codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")" \
+    && echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${codename} stable" \
+        | tee /etc/apt/sources.list.d/docker.list > /dev/null \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        docker-ce \
-        docker-ce-cli \
         containerd.io \
         docker-buildx-plugin \
+        docker-ce \
+        docker-ce-cli \
         docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /etc/docker \
     && printf '%s\n' '{' '  "storage-driver": "fuse-overlayfs"' '}' > /etc/docker/daemon.json \
     && update-alternatives --set iptables /usr/sbin/iptables-legacy \
-    && update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
-
-########################################################
-# Non-root agent user
-########################################################
-
-RUN id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash ubuntu \
+    && update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy \
+    && (id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash ubuntu) \
     && groupadd -f docker \
     && usermod -aG docker ubuntu \
     && usermod -aG sudo ubuntu \
     && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu \
-    && chmod 0440 /etc/sudoers.d/ubuntu
-
-########################################################
-# Latest stable Rust (matches rust-toolchain.toml)
-########################################################
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && chmod 0440 /etc/sudoers.d/ubuntu \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
         --default-toolchain stable \
         --profile minimal \
         --component rustfmt \
@@ -72,7 +65,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && rustup default stable \
     && rustc --version \
     && cargo --version \
-    && chown -R ubuntu:ubuntu "$CARGO_HOME" "$RUSTUP_HOME"
+    && chown -R ubuntu:ubuntu "${CARGO_HOME}" "${RUSTUP_HOME}"
 
 USER ubuntu
 WORKDIR /workspace

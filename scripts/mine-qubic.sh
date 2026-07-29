@@ -24,7 +24,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for QUBIC_WALLET_ADDRESS)
     local wallet="${QUBIC_WALLET:-${QUBIC_WALLET_ADDRESS:-}}"
@@ -38,7 +38,7 @@ preflight_check() {
     local bin="${QUBIC_BIN:-$REPO_ROOT/$BINARY_DEFAULT}"
     if [ ! -f "$bin" ]; then
         echo "ERROR: $bin not found"
-        echo "Set QUBIC_BIN in .env or place qli-Client at $BINARY_DEFAULT"
+        echo "Set QUBIC_BIN in .env or place ${BINARY_NAME} at $BINARY_DEFAULT"
         exit 1
     fi
     if [ ! -x "$bin" ]; then
