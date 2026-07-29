@@ -1,0 +1,15 @@
+.github/workflows/ci.yml
+  ai_agent 19,32-47,50,54-56,60
+rust-toolchain.toml
+  ai_agent 1-10,13-19
+scripts/setup-rust.sh
+  ai_agent 1-42
+README.md
+  ai_agent 77-78,80-84,86-87,91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2d605febc033fdc61d3bcd9f688138a3c53d01b",
+  "prompts": {}
+}
