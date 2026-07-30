@@ -107,17 +107,62 @@ pub fn detect_qubic_binary() -> Option<String> {
     )
 }
 
+/// Native Qubic client flavor — selects CLI flags **and** which credential env is valid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QubicClientKind {
+    /// `qli-Client` / wrappers — public address via `QubicAddress`.
+    Qli,
+    /// `qubic-core` — private seed via `--identity`.
+    Core,
+}
+
+/// Detect qli vs core without relying solely on the executable basename.
+///
+/// Order: `QUBIC_CLIENT_KIND` env → filename heuristics → credential presence
+/// (`QUBIC_WALLET_IDENTITY` ⇒ core, else qli for public-address stacks / opaque wrappers).
+fn detect_qubic_client_kind(binary: &str) -> QubicClientKind {
+    if let Ok(v) = std::env::var("QUBIC_CLIENT_KIND") {
+        let v = v.trim().to_ascii_lowercase();
+        if matches!(v.as_str(), "qli" | "qli-client" | "client") {
+            return QubicClientKind::Qli;
+        }
+        if matches!(v.as_str(), "core" | "qubic-core" | "native") {
+            return QubicClientKind::Core;
+        }
+    }
+
+    let name = std::path::Path::new(binary)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(binary)
+        .to_ascii_lowercase();
+    if name.contains("qli") {
+        return QubicClientKind::Qli;
+    }
+    if name.contains("qubic-core") {
+        return QubicClientKind::Core;
+    }
+
+    // Opaque wrapper (e.g. `mine-qubic`): identity present → core; otherwise qli.
+    let has_identity = std::env::var("QUBIC_WALLET_IDENTITY")
+        .ok()
+        .map(|w| !w.trim().is_empty())
+        .unwrap_or(false);
+    if has_identity {
+        QubicClientKind::Core
+    } else {
+        QubicClientKind::Qli
+    }
+}
+
 /// Resolve the credential env var for the native client mode.
 ///
-/// * `qubic-core` (`is_qli == false`): private identity only —
-///   `QUBIC_WALLET_IDENTITY`, then `QUBIC_WALLET`. Never the public address.
-/// * `qli-Client` (`is_qli == true`): public address —
-///   `QUBIC_WALLET_ADDRESS`, then `QUBIC_WALLET`. Never the private identity.
-fn resolve_qubic_credential(is_qli: bool) -> Option<String> {
-    let keys: &[&str] = if is_qli {
-        &["QUBIC_WALLET_ADDRESS", "QUBIC_WALLET"]
-    } else {
-        &["QUBIC_WALLET_IDENTITY", "QUBIC_WALLET"]
+/// * **Core**: `QUBIC_WALLET_IDENTITY` only (never `QUBIC_WALLET`, which is the public address).
+/// * **Qli**: `QUBIC_WALLET_ADDRESS`, then `QUBIC_WALLET` (public address aliases).
+fn resolve_qubic_credential(kind: QubicClientKind) -> Option<String> {
+    let keys: &[&str] = match kind {
+        QubicClientKind::Qli => &["QUBIC_WALLET_ADDRESS", "QUBIC_WALLET"],
+        QubicClientKind::Core => &["QUBIC_WALLET_IDENTITY"],
     };
     keys.iter().find_map(|k| {
         std::env::var(k)
@@ -481,11 +526,7 @@ fn spawn_native_binary(
         .map(|v| v == "true")
         .unwrap_or(false);
 
-    let is_qli = std::path::Path::new(&binary)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n.to_ascii_lowercase().contains("qli"))
-        .unwrap_or(false);
+    let client_kind = detect_qubic_client_kind(&binary);
 
     let threads_default = if aigarth_enabled { 14 } else { 28 };
     let threads = std::env::var("QUBIC_MINING_THREADS")
@@ -498,16 +539,19 @@ fn spawn_native_binary(
         .unwrap_or(DEFAULT_PORT);
     let peers = std::env::var("QUBIC_KNOWN_PEERS").unwrap_or_default();
 
-    // Mode-specific credentials: never pass a public address as --identity
-    // or a private identity as QubicAddress (filename-only is_qli above).
-    let wallet = resolve_qubic_credential(is_qli);
+    // Mode-specific credentials: core never uses public-address vars as --identity.
+    let wallet = resolve_qubic_credential(client_kind);
     let Some(wallet) = wallet else {
-        let msg = if is_qli {
-            "Qubic address required for qli mode \
-             (set QUBIC_WALLET_ADDRESS or QUBIC_WALLET)"
-        } else {
-            "Qubic identity required for qubic-core \
-             (set QUBIC_WALLET_IDENTITY or QUBIC_WALLET)"
+        let msg = match client_kind {
+            QubicClientKind::Qli => {
+                "Qubic address required for qli mode \
+                 (set QUBIC_WALLET_ADDRESS or QUBIC_WALLET; \
+                  override with QUBIC_CLIENT_KIND=qli for wrappers)"
+            }
+            QubicClientKind::Core => {
+                "Qubic identity required for qubic-core \
+                 (set QUBIC_WALLET_IDENTITY; not QUBIC_WALLET public address)"
+            }
         };
         eprintln!("[qubic] {msg}");
         *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
@@ -518,7 +562,7 @@ fn spawn_native_binary(
     *state.lock().unwrap() = QubicMinerState::Starting;
 
     let mut command = Command::new(&binary);
-    if is_qli {
+    if client_kind == QubicClientKind::Qli {
         let alias = std::env::var("SHIP_WORKER_NAME").unwrap_or_else(|_| "ship-of-theseus".into());
         command
             .arg(format!("--ClientSettings:QubicAddress={wallet}"))
@@ -691,19 +735,37 @@ mod tests {
     }
 
     #[test]
-    fn core_mode_prefers_identity_not_public_address() {
+    fn core_mode_uses_identity_only() {
         crate::miner::with_env_lock(|| {
             unsafe {
                 std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
+                std::env::set_var("QUBIC_WALLET", "also-public");
                 std::env::set_var("QUBIC_WALLET_IDENTITY", "private-id");
-                std::env::remove_var("QUBIC_WALLET");
             }
-            let got = resolve_qubic_credential(false);
+            let got = resolve_qubic_credential(QubicClientKind::Core);
             unsafe {
                 std::env::remove_var("QUBIC_WALLET_ADDRESS");
+                std::env::remove_var("QUBIC_WALLET");
                 std::env::remove_var("QUBIC_WALLET_IDENTITY");
             }
             assert_eq!(got.as_deref(), Some("private-id"));
+        });
+    }
+
+    #[test]
+    fn core_mode_rejects_public_wallet_vars() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_IDENTITY");
+                std::env::set_var("QUBIC_WALLET", "public-addr");
+                std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
+            }
+            let got = resolve_qubic_credential(QubicClientKind::Core);
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET");
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+            }
+            assert!(got.is_none());
         });
     }
 
@@ -715,7 +777,7 @@ mod tests {
                 std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
                 std::env::remove_var("QUBIC_WALLET");
             }
-            let got = resolve_qubic_credential(true);
+            let got = resolve_qubic_credential(QubicClientKind::Qli);
             unsafe {
                 std::env::remove_var("QUBIC_WALLET_IDENTITY");
                 std::env::remove_var("QUBIC_WALLET_ADDRESS");
@@ -725,18 +787,35 @@ mod tests {
     }
 
     #[test]
-    fn core_mode_ignores_address_only() {
+    fn opaque_wrapper_uses_address_when_no_identity() {
         crate::miner::with_env_lock(|| {
             unsafe {
+                std::env::remove_var("QUBIC_CLIENT_KIND");
                 std::env::remove_var("QUBIC_WALLET_IDENTITY");
-                std::env::remove_var("QUBIC_WALLET");
                 std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
             }
-            let got = resolve_qubic_credential(false);
+            let kind = detect_qubic_client_kind("/opt/wrappers/mine-qubic");
+            let got = resolve_qubic_credential(kind);
             unsafe {
                 std::env::remove_var("QUBIC_WALLET_ADDRESS");
             }
-            assert!(got.is_none());
+            assert_eq!(kind, QubicClientKind::Qli);
+            assert_eq!(got.as_deref(), Some("public-addr"));
+        });
+    }
+
+    #[test]
+    fn client_kind_env_overrides_filename() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::set_var("QUBIC_CLIENT_KIND", "qli");
+                std::env::remove_var("QUBIC_WALLET_IDENTITY");
+            }
+            let kind = detect_qubic_client_kind("/usr/local/bin/qubic-core");
+            unsafe {
+                std::env::remove_var("QUBIC_CLIENT_KIND");
+            }
+            assert_eq!(kind, QubicClientKind::Qli);
         });
     }
 
