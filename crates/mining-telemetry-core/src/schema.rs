@@ -236,9 +236,11 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
         );
     }
     let qb: &QubicStats = &stats.qubic;
-    // Require a mining signal (hashrate or solutions). Tick-only healthchecks
-    // must not become zero-hashrate MinerPerf envelopes.
-    if qb.is_active && (qb.hashrate_kh_s > 0.0 || qb.solutions_found > 0) {
+    // Mining samples (incl. explicit 0 kH/s stalls) have no tick from health API.
+    // Tick-only healthchecks set current_tick and must become NodeHealth, not MinerPerf.
+    let qubic_mining_sample =
+        qb.is_active && (qb.hashrate_kh_s > 0.0 || qb.solutions_found > 0 || qb.current_tick == 0);
+    if qubic_mining_sample {
         push(
             &mut out,
             CoinType::Qubic,
@@ -517,6 +519,30 @@ mod tests {
     fn inactive_coins_emit_nothing() {
         let stats = MiningStats::default();
         assert!(envelopes_from_mining_stats("supervisor", &stats).is_empty());
+    }
+
+    #[test]
+    fn qubic_tick_only_emits_node_health() {
+        let mut stats = MiningStats::default();
+        stats.qubic.is_active = true;
+        stats.qubic.current_tick = 42_000;
+        let envs = envelopes_from_mining_stats("supervisor", &stats);
+        assert_eq!(envs.len(), 1);
+        assert_eq!(envs[0].kind, RecordKind::NodeHealth);
+        assert_eq!(envs[0].stem, "qubic_telemetry");
+    }
+
+    #[test]
+    fn qubic_explicit_zero_hashrate_emits_miner_perf() {
+        // Stdout "0 kH/s" sets is_active with rate 0 and no tick — must not drop.
+        let mut stats = MiningStats::default();
+        stats.qubic.is_active = true;
+        stats.qubic.hashrate_kh_s = 0.0;
+        stats.qubic.current_tick = 0;
+        let envs = envelopes_from_mining_stats("supervisor", &stats);
+        assert_eq!(envs.len(), 1);
+        assert_eq!(envs[0].kind, RecordKind::MinerPerf);
+        assert_eq!(envs[0].stem, "qubic_telemetry");
     }
 
     #[test]

@@ -158,6 +158,7 @@ impl MiningStats {
                     self.kaspa.is_active = true;
                     updated = true;
                 }
+                // Word-boundary match: plain "acc" would false-hit "acceleration".
                 if let Some(n) = extract_delimited_share(&lower, "acc") {
                     self.kaspa.shares_accepted = n;
                     updated = true;
@@ -319,10 +320,36 @@ pub fn extract_count_after(line: &str, keyword: &str) -> Option<u64> {
     re.captures(after)?.get(1)?.as_str().parse().ok()
 }
 
+/// Extract a share counter next to a short keyword (`acc`/`rej`) without matching
+/// substrings of longer words (`acceleration`). Caller may pass a lowercased line.
 fn extract_delimited_share(line: &str, keyword: &str) -> Option<u64> {
     let pattern = format!(r"\b{}\b\s*[:=]?\s*(\d+)", regex::escape(keyword));
     let re = regex::Regex::new(&pattern).ok()?;
     re.captures(line)?.get(1)?.as_str().parse().ok()
+}
+
+#[cfg(test)]
+mod bzminer_share_tests {
+    use super::*;
+
+    #[test]
+    fn bzminer_acc_rej_counters() {
+        let mut stats = MiningStats::default();
+        assert!(stats.update_from_line(MinerBrand::BzMiner, "Shares: acc: 12 rej: 1"));
+        assert_eq!(stats.kaspa.shares_accepted, 12);
+        assert_eq!(stats.kaspa.shares_rejected, 1);
+    }
+
+    #[test]
+    fn bzminer_acceleration_is_not_acc_share() {
+        let mut stats = MiningStats::default();
+        // Must not treat "acceleration" as the short "acc" share keyword.
+        assert!(
+            !stats.update_from_line(MinerBrand::BzMiner, "GPU0 acceleration enabled profile=3")
+        );
+        assert_eq!(stats.kaspa.shares_accepted, 0);
+        assert_eq!(stats.kaspa.shares_rejected, 0);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -107,6 +107,26 @@ pub fn detect_qubic_binary() -> Option<String> {
     )
 }
 
+/// Resolve the credential env var for the native client mode.
+///
+/// * `qubic-core` (`is_qli == false`): private identity only —
+///   `QUBIC_WALLET_IDENTITY`, then `QUBIC_WALLET`. Never the public address.
+/// * `qli-Client` (`is_qli == true`): public address —
+///   `QUBIC_WALLET_ADDRESS`, then `QUBIC_WALLET`. Never the private identity.
+fn resolve_qubic_credential(is_qli: bool) -> Option<String> {
+    let keys: &[&str] = if is_qli {
+        &["QUBIC_WALLET_ADDRESS", "QUBIC_WALLET"]
+    } else {
+        &["QUBIC_WALLET_IDENTITY", "QUBIC_WALLET"]
+    };
+    keys.iter().find_map(|k| {
+        std::env::var(k)
+            .ok()
+            .map(|w| w.trim().to_string())
+            .filter(|w| !w.is_empty())
+    })
+}
+
 /// Check if `podman-compose` is available on PATH.
 fn has_podman_compose() -> bool {
     Command::new("which")
@@ -478,22 +498,17 @@ fn spawn_native_binary(
         .unwrap_or(DEFAULT_PORT);
     let peers = std::env::var("QUBIC_KNOWN_PEERS").unwrap_or_default();
 
-    let wallet_keys = if is_qli {
-        ["QUBIC_WALLET", "QUBIC_WALLET_ADDRESS", "QUBIC_WALLET_IDENTITY"]
-    } else {
-        ["QUBIC_WALLET_IDENTITY", "QUBIC_WALLET", "QUBIC_WALLET_ADDRESS"]
-    };
-    let wallet = wallet_keys
-        .into_iter()
-        .find_map(|k| {
-            std::env::var(k)
-                .ok()
-                .map(|w| w.trim().to_string())
-                .filter(|w| !w.is_empty())
-        });
+    // Mode-specific credentials: never pass a public address as --identity
+    // or a private identity as QubicAddress (filename-only is_qli above).
+    let wallet = resolve_qubic_credential(is_qli);
     let Some(wallet) = wallet else {
-        let msg = "Qubic wallet required for native mode \
-                   (set QUBIC_WALLET_IDENTITY, QUBIC_WALLET, or QUBIC_WALLET_ADDRESS)";
+        let msg = if is_qli {
+            "Qubic address required for qli mode \
+             (set QUBIC_WALLET_ADDRESS or QUBIC_WALLET)"
+        } else {
+            "Qubic identity required for qubic-core \
+             (set QUBIC_WALLET_IDENTITY or QUBIC_WALLET)"
+        };
         eprintln!("[qubic] {msg}");
         *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
         let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
@@ -672,6 +687,56 @@ mod tests {
             }
             // Falls through — either finds binary on PATH or returns None.
             let _ = result;
+        });
+    }
+
+    #[test]
+    fn core_mode_prefers_identity_not_public_address() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
+                std::env::set_var("QUBIC_WALLET_IDENTITY", "private-id");
+                std::env::remove_var("QUBIC_WALLET");
+            }
+            let got = resolve_qubic_credential(false);
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+                std::env::remove_var("QUBIC_WALLET_IDENTITY");
+            }
+            assert_eq!(got.as_deref(), Some("private-id"));
+        });
+    }
+
+    #[test]
+    fn qli_mode_prefers_address_not_identity() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::set_var("QUBIC_WALLET_IDENTITY", "private-id");
+                std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
+                std::env::remove_var("QUBIC_WALLET");
+            }
+            let got = resolve_qubic_credential(true);
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_IDENTITY");
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+            }
+            assert_eq!(got.as_deref(), Some("public-addr"));
+        });
+    }
+
+    #[test]
+    fn core_mode_ignores_address_only() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_IDENTITY");
+                std::env::remove_var("QUBIC_WALLET");
+                std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
+            }
+            let got = resolve_qubic_credential(false);
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+            }
+            assert!(got.is_none());
         });
     }
 
