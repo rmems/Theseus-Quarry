@@ -96,7 +96,13 @@ Source-only image (no `binaries/`, wallets, or `.env`):
 
 ```bash
 docker build -f .devcontainer/Dockerfile -t theseus-quarry:dev .
-docker run --rm -it -v "$PWD:/workspace" -w /workspace theseus-quarry:dev bash
+# Run as the host user so Cargo does not create root-owned target/ on the bind mount.
+docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  -e CARGO_HOME=/tmp/cargo \
+  -e CARGO_TARGET_DIR=/tmp/target \
+  -v "$PWD:/workspace" -w /workspace \
+  theseus-quarry:dev bash
 ```
 
 Or open the repo in VS Code / Cursor **Dev Containers** (`.devcontainer/`). Do not mount host wallet paths into the container by default.

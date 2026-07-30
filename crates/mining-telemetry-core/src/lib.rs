@@ -219,6 +219,7 @@ impl MiningStats {
                 if let Some(hr) = extract_hashrate(&lower, &["kh/s", "mh/s", "gh/s"]) {
                     // Qubic uses kH/s; extract_hashrate normalizes to MH/s, convert back
                     self.qubic.hashrate_kh_s = hr * 1000.0;
+                    self.qubic.hashrate_sampled = true;
                     self.qubic.is_active = true;
                     updated = true;
                 }
@@ -387,6 +388,10 @@ pub struct QubicStats {
     pub is_active: bool,
     pub epoch_progress: f32,
     pub aigarth_active: bool,
+    /// True after a stdout hashrate token was parsed (including explicit 0 kH/s).
+    pub hashrate_sampled: bool,
+    /// True after a health/tick poll set `current_tick` (including tick 0).
+    pub tick_sampled: bool,
 }
 
 impl Default for QubicStats {
@@ -400,6 +405,8 @@ impl Default for QubicStats {
             is_active: false,
             epoch_progress: 0.0,
             aigarth_active: false,
+            hashrate_sampled: false,
+            tick_sampled: false,
         }
     }
 }
@@ -465,16 +472,7 @@ impl MiningTelemetry {
                     uptime_seconds: 0,
                     is_active: false,
                 },
-                qubic: QubicStats {
-                    hashrate_kh_s: 0.0,
-                    solutions_found: 0,
-                    current_tick: 0,
-                    peers_connected: 0,
-                    uptime_seconds: 0,
-                    is_active: false,
-                    epoch_progress: 0.0,
-                    aigarth_active: false,
-                },
+                qubic: QubicStats::default(),
                 monero: MoneroStats::default(),
                 verus: VerusStats::default(),
                 kaspa: KaspaStats::default(),

@@ -236,11 +236,8 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
         );
     }
     let qb: &QubicStats = &stats.qubic;
-    // Mining samples (incl. explicit 0 kH/s stalls) have no tick from health API.
-    // Tick-only healthchecks set current_tick and must become NodeHealth, not MinerPerf.
-    let qubic_mining_sample =
-        qb.is_active && (qb.hashrate_kh_s > 0.0 || qb.solutions_found > 0 || qb.current_tick == 0);
-    if qubic_mining_sample {
+    // Prefer explicit sample flags: stdout hashrate (incl. 0 kH/s) vs health tick (incl. 0).
+    if qb.hashrate_sampled || qb.solutions_found > 0 {
         push(
             &mut out,
             CoinType::Qubic,
@@ -251,7 +248,7 @@ pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<Tel
             qb.is_active,
             qb.uptime_seconds,
         );
-    } else if qb.current_tick > 0 {
+    } else if qb.tick_sampled || qb.current_tick > 0 {
         let mut env = node_health(
             source,
             "qubic_telemetry",
@@ -526,6 +523,7 @@ mod tests {
         let mut stats = MiningStats::default();
         stats.qubic.is_active = true;
         stats.qubic.current_tick = 42_000;
+        stats.qubic.tick_sampled = true;
         let envs = envelopes_from_mining_stats("supervisor", &stats);
         assert_eq!(envs.len(), 1);
         assert_eq!(envs[0].kind, RecordKind::NodeHealth);
@@ -534,15 +532,28 @@ mod tests {
 
     #[test]
     fn qubic_explicit_zero_hashrate_emits_miner_perf() {
-        // Stdout "0 kH/s" sets is_active with rate 0 and no tick — must not drop.
+        // Stdout "0 kH/s" marks hashrate_sampled — must not drop or become NodeHealth.
         let mut stats = MiningStats::default();
         stats.qubic.is_active = true;
         stats.qubic.hashrate_kh_s = 0.0;
+        stats.qubic.hashrate_sampled = true;
         stats.qubic.current_tick = 0;
         let envs = envelopes_from_mining_stats("supervisor", &stats);
         assert_eq!(envs.len(), 1);
         assert_eq!(envs[0].kind, RecordKind::MinerPerf);
         assert_eq!(envs[0].stem, "qubic_telemetry");
+    }
+
+    #[test]
+    fn qubic_zero_tick_health_emits_node_health() {
+        // healthcheck can parse {"tick":0} at startup — must not become MinerPerf.
+        let mut stats = MiningStats::default();
+        stats.qubic.is_active = true;
+        stats.qubic.current_tick = 0;
+        stats.qubic.tick_sampled = true;
+        let envs = envelopes_from_mining_stats("supervisor", &stats);
+        assert_eq!(envs.len(), 1);
+        assert_eq!(envs[0].kind, RecordKind::NodeHealth);
     }
 
     #[test]

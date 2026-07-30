@@ -94,17 +94,29 @@ pub fn detect_compose_file() -> Option<String> {
     None
 }
 
-/// Locate a usable `qubic-core` native binary (skips empty/text stubs).
+/// Locate a usable Qubic native binary (`qli-Client` or `qubic-core`).
+///
+/// Searches the repo layout used by `scripts/mine-qubic.sh`
+/// (`binaries/mining/qli-client/qli-Client`) and the qubic-core paths.
 pub fn detect_qubic_binary() -> Option<String> {
-    miner::detect_binary(
+    if let Some(p) = miner::detect_binary(
         "QUBIC_MINER_CMD",
         &[
+            "binaries/mining/qli-client/qli-Client",
             "binaries/mining/nodes/Qubic/bin/qubic-core",
             "binaries/mining/nodes/Qubic/qubic-core",
         ],
-        &["./qubic-core", "./nodes/Qubic/bin/qubic-core"],
-        "qubic-core",
-    )
+        &[
+            "./qli-Client",
+            "./qubic-core",
+            "./nodes/Qubic/bin/qubic-core",
+        ],
+        "qli-Client",
+    ) {
+        return Some(p);
+    }
+    // PATH fallback when only qubic-core is installed under that name.
+    miner::detect_binary("QUBIC_MINER_CMD", &[], &[], "qubic-core")
 }
 
 /// Native Qubic client flavor — selects CLI flags **and** which credential env is valid.
@@ -493,6 +505,7 @@ fn healthcheck_loop(state: Arc<Mutex<QubicMinerState>>, telem_tx: mpsc::Sender<W
             if let Some(tick) = extract_tick_from_json(&body) {
                 let mut telem = MiningTelemetry::new();
                 telem.stats.qubic.current_tick = tick;
+                telem.stats.qubic.tick_sampled = true;
                 telem.stats.qubic.is_active = true;
                 let _ = telem_tx.send(WireMsg::mining_telem(telem));
             }
