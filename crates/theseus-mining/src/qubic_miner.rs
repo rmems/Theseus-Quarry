@@ -461,6 +461,12 @@ fn spawn_native_binary(
         .map(|v| v == "true")
         .unwrap_or(false);
 
+    let is_qli = std::path::Path::new(&binary)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.to_ascii_lowercase().contains("qli"))
+        .unwrap_or(false);
+
     let threads_default = if aigarth_enabled { 14 } else { 28 };
     let threads = std::env::var("QUBIC_MINING_THREADS")
         .ok()
@@ -472,8 +478,12 @@ fn spawn_native_binary(
         .unwrap_or(DEFAULT_PORT);
     let peers = std::env::var("QUBIC_KNOWN_PEERS").unwrap_or_default();
 
-    // Prefer IDENTITY (qubic-core), then documented QUBIC_WALLET / ADDRESS (qli scripts).
-    let wallet = ["QUBIC_WALLET_IDENTITY", "QUBIC_WALLET", "QUBIC_WALLET_ADDRESS"]
+    let wallet_keys = if is_qli {
+        ["QUBIC_WALLET", "QUBIC_WALLET_ADDRESS", "QUBIC_WALLET_IDENTITY"]
+    } else {
+        ["QUBIC_WALLET_IDENTITY", "QUBIC_WALLET", "QUBIC_WALLET_ADDRESS"]
+    };
+    let wallet = wallet_keys
         .into_iter()
         .find_map(|k| {
             std::env::var(k)
@@ -493,8 +503,6 @@ fn spawn_native_binary(
     *state.lock().unwrap() = QubicMinerState::Starting;
 
     let mut command = Command::new(&binary);
-    // qli-Client uses --ClientSettings:*; qubic-core uses --identity/--port/--threads.
-    let is_qli = binary.to_ascii_lowercase().contains("qli");
     if is_qli {
         let alias = std::env::var("SHIP_WORKER_NAME").unwrap_or_else(|_| "ship-of-theseus".into());
         command

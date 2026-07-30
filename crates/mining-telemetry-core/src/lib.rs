@@ -158,11 +158,11 @@ impl MiningStats {
                     self.kaspa.is_active = true;
                     updated = true;
                 }
-                if let Some(n) = extract_count_after(line, "acc") {
+                if let Some(n) = extract_delimited_share(&lower, "acc") {
                     self.kaspa.shares_accepted = n;
                     updated = true;
                 }
-                if let Some(n) = extract_count_after(line, "rej") {
+                if let Some(n) = extract_delimited_share(&lower, "rej") {
                     self.kaspa.shares_rejected = n;
                     updated = true;
                 }
@@ -317,6 +317,12 @@ pub fn extract_count_after(line: &str, keyword: &str) -> Option<u64> {
     let after = &line[idx..];
     let re = regex::Regex::new(r"(\d+)").ok()?;
     re.captures(after)?.get(1)?.as_str().parse().ok()
+}
+
+fn extract_delimited_share(line: &str, keyword: &str) -> Option<u64> {
+    let pattern = format!(r"\b{}\b\s*[:=]?\s*(\d+)", regex::escape(keyword));
+    let re = regex::Regex::new(&pattern).ok()?;
+    re.captures(line)?.get(1)?.as_str().parse().ok()
 }
 
 #[derive(Debug, Clone, Serialize)]
