@@ -66,7 +66,11 @@ pub enum QubicMode {
 pub enum QubicMinerState {
     Idle,
     Starting,
-    Running { mode: QubicMode },
+    /// Native mode stores the supervised PID so reapers cannot Idle a replacement.
+    Running {
+        mode: QubicMode,
+        pid: Option<u32>,
+    },
     Failed(String),
 }
 
@@ -126,43 +130,14 @@ fn discovery_preference() -> DiscoveryPreference {
     DiscoveryPreference::Prefer(prefer)
 }
 
-/// Search paths / PATH without consulting `QUBIC_MINER_CMD` (handled by the caller).
-fn search_binary_paths(
-    canonical_paths: &[&str],
-    local_paths: &[&str],
-    which_name: &str,
-) -> Option<String> {
-    let base = miner::ship_work_dir();
-    for tmpl in canonical_paths {
-        let path = format!("{base}/{tmpl}");
-        if miner::is_usable_binary(&path) {
-            return Some(path);
-        }
-    }
-    for p in local_paths {
-        if miner::is_usable_binary(p) {
-            return Some(p.to_string());
-        }
-    }
-    if Command::new("which")
-        .arg(which_name)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return Some(which_name.to_string());
-    }
-    None
-}
-
 fn search_client_family(kind: QubicClientKind) -> Option<String> {
     match kind {
-        QubicClientKind::Qli => search_binary_paths(
+        QubicClientKind::Qli => miner::detect_binary_paths(
             &["binaries/mining/qli-client/qli-Client"],
             &["./qli-Client"],
             "qli-Client",
         ),
-        QubicClientKind::Core => search_binary_paths(
+        QubicClientKind::Core => miner::detect_binary_paths(
             &[
                 "binaries/mining/nodes/Qubic/bin/qubic-core",
                 "binaries/mining/nodes/Qubic/qubic-core",
@@ -386,6 +361,7 @@ fn supervisor_loop(cmd_rx: mpsc::Receiver<MinerCommand>, telem_tx: mpsc::Sender<
                 let s = state.lock().unwrap();
                 if let QubicMinerState::Running {
                     mode: QubicMode::NativeBinary,
+                    ..
                 } = *s
                 {
                     drop(s);
@@ -401,6 +377,7 @@ fn supervisor_loop(cmd_rx: mpsc::Receiver<MinerCommand>, telem_tx: mpsc::Sender<
                 let s = state.lock().unwrap();
                 if let QubicMinerState::Running {
                     mode: QubicMode::NativeBinary,
+                    ..
                 } = *s
                 {
                     let aigarth = std::env::var("AIGARTH_ENABLED")
@@ -451,6 +428,7 @@ fn spawn_podman(
             eprintln!("[qubic] podman-compose up -d succeeded");
             *state.lock().unwrap() = QubicMinerState::Running {
                 mode: QubicMode::PodmanCompose,
+                pid: None,
             };
             let _ = telem_tx.send(WireMsg::Status(
                 "⛏ Qubic containers started (podman-compose)".into(),
@@ -543,7 +521,8 @@ fn healthcheck_loop(state: Arc<Mutex<QubicMinerState>>, telem_tx: mpsc::Sender<W
             if !matches!(
                 *s,
                 QubicMinerState::Running {
-                    mode: QubicMode::PodmanCompose
+                    mode: QubicMode::PodmanCompose,
+                    ..
                 }
             ) {
                 return;
@@ -719,6 +698,7 @@ fn spawn_native_binary(
             eprintln!("[qubic] spawned PID {pid}  threads={threads}  port={port}");
             *state.lock().unwrap() = QubicMinerState::Running {
                 mode: QubicMode::NativeBinary,
+                pid: Some(pid),
             };
             let _ = telem_tx.send(WireMsg::Status(format!(
                 "⛏ Qubic miner started (PID {pid}  threads={threads})"
@@ -779,6 +759,7 @@ fn kill_native(pid: Option<u32>) {
 }
 
 fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
+    let reaped_pid = child.id();
     match child.wait() {
         Ok(status) if !status.success() => {
             eprintln!("[qubic] process exited with {status}");
@@ -786,7 +767,16 @@ fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
         Err(e) => eprintln!("[qubic] wait() error: {e}"),
         _ => {}
     }
-    *state.lock().unwrap() = QubicMinerState::Idle;
+    let mut s = state.lock().unwrap();
+    if matches!(
+        *s,
+        QubicMinerState::Running {
+            mode: QubicMode::NativeBinary,
+            pid: Some(pid)
+        } if pid == reaped_pid
+    ) {
+        *s = QubicMinerState::Idle;
+    }
 }
 
 // ─── Stdout reader ───────────────────────────────────────────────────────────
@@ -965,6 +955,58 @@ mod tests {
                 std::env::remove_var("QUBIC_WALLET_ADDRESS");
             }
             assert!(err.contains("ambiguous"), "{err}");
+        });
+    }
+
+    #[test]
+    fn discovery_explicit_kind_is_hard_constraint() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::set_var("QUBIC_CLIENT_KIND", "core");
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+                std::env::remove_var("QUBIC_WALLET");
+            }
+            assert!(matches!(
+                discovery_preference(),
+                DiscoveryPreference::Explicit(QubicClientKind::Core)
+            ));
+            unsafe {
+                std::env::set_var("QUBIC_CLIENT_KIND", "qli");
+            }
+            assert!(matches!(
+                discovery_preference(),
+                DiscoveryPreference::Explicit(QubicClientKind::Qli)
+            ));
+            unsafe {
+                std::env::remove_var("QUBIC_CLIENT_KIND");
+            }
+        });
+    }
+
+    #[test]
+    fn discovery_credential_heuristic_is_prefer_not_hard() {
+        crate::miner::with_env_lock(|| {
+            unsafe {
+                std::env::remove_var("QUBIC_CLIENT_KIND");
+                std::env::set_var("QUBIC_WALLET_IDENTITY", "private-id");
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+                std::env::remove_var("QUBIC_WALLET");
+            }
+            assert!(matches!(
+                discovery_preference(),
+                DiscoveryPreference::Prefer(QubicClientKind::Core)
+            ));
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_IDENTITY");
+                std::env::set_var("QUBIC_WALLET_ADDRESS", "public-addr");
+            }
+            assert!(matches!(
+                discovery_preference(),
+                DiscoveryPreference::Prefer(QubicClientKind::Qli)
+            ));
+            unsafe {
+                std::env::remove_var("QUBIC_WALLET_ADDRESS");
+            }
         });
     }
 

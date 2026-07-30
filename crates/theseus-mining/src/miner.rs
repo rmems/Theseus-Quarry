@@ -51,6 +51,7 @@ pub fn kill_process_group(pid: Option<u32>, timeout_secs: u64) {
 }
 
 pub fn reap_child(mut child: Child, state: Arc<Mutex<MinerState>>, log_prefix: &str) {
+    let reaped_pid = child.id();
     match child.wait() {
         Ok(status) if !status.success() => {
             eprintln!("{log_prefix} process exited with {status}");
@@ -58,7 +59,12 @@ pub fn reap_child(mut child: Child, state: Arc<Mutex<MinerState>>, log_prefix: &
         Err(e) => eprintln!("{log_prefix} wait() error: {e}"),
         _ => {}
     }
-    *state.lock().unwrap() = MinerState::Idle;
+    // Only Idle if this reaper still owns the Running slot — a replacement
+    // Start may have already installed a new PID before wait() returned.
+    let mut s = state.lock().unwrap();
+    if matches!(*s, MinerState::Running { pid } if pid == reaped_pid) {
+        *s = MinerState::Idle;
+    }
 }
 
 pub fn setsid_command(command: &mut Command) {
@@ -127,20 +133,12 @@ pub fn is_usable_binary(path: &str) -> bool {
     true
 }
 
-/// Detect a binary: env override → canonical paths under repo → local paths → `which`.
-pub fn detect_binary(
-    env_var: &str,
+/// Search repo/local/`which` paths without consulting any environment override.
+pub fn detect_binary_paths(
     canonical_paths: &[&str],
     local_paths: &[&str],
     which_name: &str,
 ) -> Option<String> {
-    if let Ok(cmd) = std::env::var(env_var) {
-        let t = cmd.trim().to_string();
-        if !t.is_empty() {
-            return Some(t);
-        }
-    }
-
     let base = ship_work_dir();
     for tmpl in canonical_paths {
         let path = format!("{base}/{tmpl}");
@@ -165,6 +163,22 @@ pub fn detect_binary(
     }
 
     None
+}
+
+/// Detect a binary: env override → canonical paths under repo → local paths → `which`.
+pub fn detect_binary(
+    env_var: &str,
+    canonical_paths: &[&str],
+    local_paths: &[&str],
+    which_name: &str,
+) -> Option<String> {
+    if let Ok(cmd) = std::env::var(env_var) {
+        let t = cmd.trim().to_string();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    detect_binary_paths(canonical_paths, local_paths, which_name)
 }
 
 /// Serialize tests that mutate process environment (std env is global).
@@ -233,17 +247,10 @@ fn supervisor_loop(
 
             MinerCommand::Stop => {
                 paused_for_chat = false;
-                // Reaper may already have marked Idle after natural exit —
-                // only signal if this PID is still the live Running process.
-                let live = matches!(
-                    *state.lock().unwrap(),
-                    MinerState::Running { pid } if Some(pid) == child_pid
-                );
-                if live {
-                    kill_process_group(child_pid.take(), config.kill_timeout);
-                } else {
-                    child_pid = None;
-                }
+                // Always signal the supervisor-tracked PID if any. Do not gate
+                // on shared state (reaper races can mark Idle while child_pid
+                // still points at a live replacement or zombie-to-kill).
+                kill_process_group(child_pid.take(), config.kill_timeout);
                 *state.lock().unwrap() = MinerState::Idle;
                 let _ = telem_tx.send(WireMsg::Status(format!(
                     "{}miner stopped",
@@ -253,15 +260,7 @@ fn supervisor_loop(
 
             MinerCommand::YieldForChat(ref model) => {
                 eprintln!("{}yielding for {model}", config.log_prefix);
-                let live = matches!(
-                    *state.lock().unwrap(),
-                    MinerState::Running { pid } if Some(pid) == child_pid
-                );
-                if live {
-                    kill_process_group(child_pid.take(), config.kill_timeout);
-                } else {
-                    child_pid = None;
-                }
+                kill_process_group(child_pid.take(), config.kill_timeout);
                 *state.lock().unwrap() = MinerState::Idle;
                 paused_for_chat = true;
                 let _ = telem_tx.send(WireMsg::Status(format!(
