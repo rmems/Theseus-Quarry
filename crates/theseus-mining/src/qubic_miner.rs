@@ -96,37 +96,87 @@ pub fn detect_compose_file() -> Option<String> {
     None
 }
 
-/// Prefer qli vs core **before** path search so identity-only hosts do not pick
-/// a present but unusable `qli-Client` ahead of `qubic-core`.
-fn preferred_client_kind_for_discovery() -> QubicClientKind {
+/// How binary discovery ranks qli vs core families.
+enum DiscoveryPreference {
+    /// `QUBIC_CLIENT_KIND` set — only search that family (no cross-family fallthrough).
+    Explicit(QubicClientKind),
+    /// Heuristic from credentials — try preferred family first, then the other.
+    Prefer(QubicClientKind),
+}
+
+fn discovery_preference() -> DiscoveryPreference {
     if let Ok(raw) = std::env::var("QUBIC_CLIENT_KIND") {
         let v = raw.trim().to_ascii_lowercase();
         if matches!(v.as_str(), "qli" | "qli-client" | "client") {
-            return QubicClientKind::Qli;
+            return DiscoveryPreference::Explicit(QubicClientKind::Qli);
         }
         if matches!(v.as_str(), "core" | "qubic-core" | "native") {
-            return QubicClientKind::Core;
+            return DiscoveryPreference::Explicit(QubicClientKind::Core);
         }
+        // Invalid nonempty values are rejected later by `detect_qubic_client_kind`.
     }
     let has_identity = env_nonempty("QUBIC_WALLET_IDENTITY");
     let has_public = env_nonempty("QUBIC_WALLET_ADDRESS") || env_nonempty("QUBIC_WALLET");
-    match (has_identity, has_public) {
+    let prefer = match (has_identity, has_public) {
         (true, false) => QubicClientKind::Core,
         (false, true) => QubicClientKind::Qli,
         // Ambiguous or neither: default to qli (scripts/mine-qubic.sh layout).
         _ => QubicClientKind::Qli,
-    }
+    };
+    DiscoveryPreference::Prefer(prefer)
 }
 
-fn first_usable_path(canonical: &[&str], local: &[&str], which_name: &str) -> Option<String> {
-    // No env override here — callers handle QUBIC_MINER_CMD first.
-    miner::detect_binary("__THESEUS_NO_ENV__", canonical, local, which_name)
+/// Search paths / PATH without consulting `QUBIC_MINER_CMD` (handled by the caller).
+fn search_binary_paths(
+    canonical_paths: &[&str],
+    local_paths: &[&str],
+    which_name: &str,
+) -> Option<String> {
+    let base = miner::ship_work_dir();
+    for tmpl in canonical_paths {
+        let path = format!("{base}/{tmpl}");
+        if miner::is_usable_binary(&path) {
+            return Some(path);
+        }
+    }
+    for p in local_paths {
+        if miner::is_usable_binary(p) {
+            return Some(p.to_string());
+        }
+    }
+    if Command::new("which")
+        .arg(which_name)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return Some(which_name.to_string());
+    }
+    None
+}
+
+fn search_client_family(kind: QubicClientKind) -> Option<String> {
+    match kind {
+        QubicClientKind::Qli => search_binary_paths(
+            &["binaries/mining/qli-client/qli-Client"],
+            &["./qli-Client"],
+            "qli-Client",
+        ),
+        QubicClientKind::Core => search_binary_paths(
+            &[
+                "binaries/mining/nodes/Qubic/bin/qubic-core",
+                "binaries/mining/nodes/Qubic/qubic-core",
+            ],
+            &["./qubic-core", "./nodes/Qubic/bin/qubic-core"],
+            "qubic-core",
+        ),
+    }
 }
 
 /// Locate a usable Qubic native binary (`qli-Client` or `qubic-core`).
 ///
-/// Order: `QUBIC_MINER_CMD` → preferred client family (from `QUBIC_CLIENT_KIND`
-/// / credentials) → other family. Paths include `binaries/mining/qli-client/qli-Client`.
+/// Order: `QUBIC_MINER_CMD` → family constrained by `QUBIC_CLIENT_KIND` (hard)
+/// or credential heuristic (preferred then other).
 pub fn detect_qubic_binary() -> Option<String> {
     if let Ok(cmd) = std::env::var("QUBIC_MINER_CMD") {
         let t = cmd.trim();
@@ -135,31 +185,16 @@ pub fn detect_qubic_binary() -> Option<String> {
         }
     }
 
-    let qli = (
-        &["binaries/mining/qli-client/qli-Client"][..],
-        &["./qli-Client"][..],
-        "qli-Client",
-    );
-    let core = (
-        &[
-            "binaries/mining/nodes/Qubic/bin/qubic-core",
-            "binaries/mining/nodes/Qubic/qubic-core",
-        ][..],
-        &["./qubic-core", "./nodes/Qubic/bin/qubic-core"][..],
-        "qubic-core",
-    );
-
-    let prefer = preferred_client_kind_for_discovery();
-    let order = match prefer {
-        QubicClientKind::Qli => [qli, core],
-        QubicClientKind::Core => [core, qli],
-    };
-    for (canonical, local, which_name) in order {
-        if let Some(p) = first_usable_path(canonical, local, which_name) {
-            return Some(p);
+    match discovery_preference() {
+        DiscoveryPreference::Explicit(kind) => search_client_family(kind),
+        DiscoveryPreference::Prefer(prefer) => {
+            let other = match prefer {
+                QubicClientKind::Qli => QubicClientKind::Core,
+                QubicClientKind::Core => QubicClientKind::Qli,
+            };
+            search_client_family(prefer).or_else(|| search_client_family(other))
         }
     }
-    None
 }
 
 /// Native Qubic client flavor — selects CLI flags **and** which credential env is valid.
