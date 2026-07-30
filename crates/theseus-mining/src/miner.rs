@@ -247,10 +247,19 @@ fn supervisor_loop(
 
             MinerCommand::Stop => {
                 paused_for_chat = false;
-                // Always signal the supervisor-tracked PID if any. Do not gate
-                // on shared state (reaper races can mark Idle while child_pid
-                // still points at a live replacement or zombie-to-kill).
-                kill_process_group(child_pid.take(), config.kill_timeout);
+                // Signal only while shared state still says this PID is Running.
+                // Safe with the PID-guarded reaper: natural exit clears Running
+                // for that PID so we do not SIGKILL a recycled OS PID; a
+                // replacement Start installs a new Running { pid } that matches.
+                let live = matches!(
+                    *state.lock().unwrap(),
+                    MinerState::Running { pid } if Some(pid) == child_pid
+                );
+                if live {
+                    kill_process_group(child_pid.take(), config.kill_timeout);
+                } else {
+                    child_pid = None;
+                }
                 *state.lock().unwrap() = MinerState::Idle;
                 let _ = telem_tx.send(WireMsg::Status(format!(
                     "{}miner stopped",
@@ -260,7 +269,15 @@ fn supervisor_loop(
 
             MinerCommand::YieldForChat(ref model) => {
                 eprintln!("{}yielding for {model}", config.log_prefix);
-                kill_process_group(child_pid.take(), config.kill_timeout);
+                let live = matches!(
+                    *state.lock().unwrap(),
+                    MinerState::Running { pid } if Some(pid) == child_pid
+                );
+                if live {
+                    kill_process_group(child_pid.take(), config.kill_timeout);
+                } else {
+                    child_pid = None;
+                }
                 *state.lock().unwrap() = MinerState::Idle;
                 paused_for_chat = true;
                 let _ = telem_tx.send(WireMsg::Status(format!(
