@@ -13,16 +13,18 @@
 //!
 //! - **PodmanCompose**: preferred when `podman-compose` is available. Uses the
 //!   existing `docker-compose.qubic.yml` to bring up `qubic-nodes` + `qubic-http`.
-//! - **NativeBinary**: fallback that spawns `qubic-core` as a managed subprocess
-//!   with setsid(), stdout parsing, and SIGTERM/SIGKILL lifecycle.
+//! - **NativeBinary**: fallback that spawns `qli-Client` or `qubic-core` as a
+//!   managed subprocess with setsid(), stdout parsing, and SIGTERM/SIGKILL lifecycle.
 //!
 //! # Environment variables consumed
 //!
 //! | Variable              | Default                                              |
 //! |-----------------------|------------------------------------------------------|
-//! | `QUBIC_MINER_CMD`     | (override: full path to qubic-core binary)           |
+//! | `QUBIC_MINER_CMD`     | override: full path to `qli-Client` or `qubic-core`  |
+//! | `QUBIC_CLIENT_KIND`   | `qli` \| `core` (required if credentials ambiguous)  |
 //! | `QUBIC_COMPOSE_FILE`  | (override: full path to docker-compose.qubic.yml)    |
-//! | `QUBIC_WALLET_IDENTITY` / `QUBIC_WALLET` / `QUBIC_WALLET_ADDRESS` | required for native mode |
+//! | `QUBIC_WALLET_IDENTITY` | required for **core** native mode                  |
+//! | `QUBIC_WALLET` / `QUBIC_WALLET_ADDRESS` | public address for **qli** native mode |
 //! | `QUBIC_MINING_THREADS`  | `4`                                                |
 //! | `QUBIC_PORT`          | `21841`                                              |
 //! | `QUBIC_KNOWN_PEERS`   | from `.env.qubic`                                    |
@@ -94,29 +96,70 @@ pub fn detect_compose_file() -> Option<String> {
     None
 }
 
+/// Prefer qli vs core **before** path search so identity-only hosts do not pick
+/// a present but unusable `qli-Client` ahead of `qubic-core`.
+fn preferred_client_kind_for_discovery() -> QubicClientKind {
+    if let Ok(raw) = std::env::var("QUBIC_CLIENT_KIND") {
+        let v = raw.trim().to_ascii_lowercase();
+        if matches!(v.as_str(), "qli" | "qli-client" | "client") {
+            return QubicClientKind::Qli;
+        }
+        if matches!(v.as_str(), "core" | "qubic-core" | "native") {
+            return QubicClientKind::Core;
+        }
+    }
+    let has_identity = env_nonempty("QUBIC_WALLET_IDENTITY");
+    let has_public = env_nonempty("QUBIC_WALLET_ADDRESS") || env_nonempty("QUBIC_WALLET");
+    match (has_identity, has_public) {
+        (true, false) => QubicClientKind::Core,
+        (false, true) => QubicClientKind::Qli,
+        // Ambiguous or neither: default to qli (scripts/mine-qubic.sh layout).
+        _ => QubicClientKind::Qli,
+    }
+}
+
+fn first_usable_path(canonical: &[&str], local: &[&str], which_name: &str) -> Option<String> {
+    // No env override here — callers handle QUBIC_MINER_CMD first.
+    miner::detect_binary("__THESEUS_NO_ENV__", canonical, local, which_name)
+}
+
 /// Locate a usable Qubic native binary (`qli-Client` or `qubic-core`).
 ///
-/// Searches the repo layout used by `scripts/mine-qubic.sh`
-/// (`binaries/mining/qli-client/qli-Client`) and the qubic-core paths.
+/// Order: `QUBIC_MINER_CMD` → preferred client family (from `QUBIC_CLIENT_KIND`
+/// / credentials) → other family. Paths include `binaries/mining/qli-client/qli-Client`.
 pub fn detect_qubic_binary() -> Option<String> {
-    if let Some(p) = miner::detect_binary(
-        "QUBIC_MINER_CMD",
+    if let Ok(cmd) = std::env::var("QUBIC_MINER_CMD") {
+        let t = cmd.trim();
+        if !t.is_empty() {
+            return Some(t.to_string());
+        }
+    }
+
+    let qli = (
+        &["binaries/mining/qli-client/qli-Client"][..],
+        &["./qli-Client"][..],
+        "qli-Client",
+    );
+    let core = (
         &[
-            "binaries/mining/qli-client/qli-Client",
             "binaries/mining/nodes/Qubic/bin/qubic-core",
             "binaries/mining/nodes/Qubic/qubic-core",
-        ],
-        &[
-            "./qli-Client",
-            "./qubic-core",
-            "./nodes/Qubic/bin/qubic-core",
-        ],
-        "qli-Client",
-    ) {
-        return Some(p);
+        ][..],
+        &["./qubic-core", "./nodes/Qubic/bin/qubic-core"][..],
+        "qubic-core",
+    );
+
+    let prefer = preferred_client_kind_for_discovery();
+    let order = match prefer {
+        QubicClientKind::Qli => [qli, core],
+        QubicClientKind::Core => [core, qli],
+    };
+    for (canonical, local, which_name) in order {
+        if let Some(p) = first_usable_path(canonical, local, which_name) {
+            return Some(p);
+        }
     }
-    // PATH fallback when only qubic-core is installed under that name.
-    miner::detect_binary("QUBIC_MINER_CMD", &[], &[], "qubic-core")
+    None
 }
 
 /// Native Qubic client flavor — selects CLI flags **and** which credential env is valid.
@@ -283,8 +326,10 @@ fn supervisor_loop(cmd_rx: mpsc::Receiver<MinerCommand>, telem_tx: mpsc::Sender<
                     }
                     None => {
                         let msg = "no Qubic miner found — install podman-compose + \
-                                   docker-compose.qubic.yml or place qubic-core binary \
-                                   at binaries/mining/nodes/Qubic/bin/qubic-core";
+                                   docker-compose.qubic.yml, or place qli-Client at \
+                                   binaries/mining/qli-client/qli-Client or qubic-core at \
+                                   binaries/mining/nodes/Qubic/bin/qubic-core \
+                                   (or set QUBIC_MINER_CMD)";
                         eprintln!("[qubic] {msg}");
                         *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
                         let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
@@ -541,9 +586,10 @@ fn spawn_native_binary(
     _aigarth_enabled: bool,
 ) -> Option<u32> {
     let Some(binary) = detect_qubic_binary() else {
-        let msg = "no usable qubic-core binary found — set QUBIC_MINER_CMD to a real \
-                   binary (empty stubs under binaries/mining/nodes/Qubic/ are ignored), \
-                   or use podman-compose mode";
+        let msg = "no usable qli-Client or qubic-core binary found — set QUBIC_MINER_CMD \
+                   to a real binary (empty stubs under binaries/mining/ are ignored), \
+                   place qli-Client at binaries/mining/qli-client/qli-Client, or use \
+                   podman-compose mode";
         eprintln!("[qubic] {msg}");
         *state.lock().unwrap() = QubicMinerState::Failed(msg.to_string());
         let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
