@@ -54,6 +54,10 @@ ocean.env
 .claude/
 .grok/
 
+# Local research / neuromorphic consumer design (out of mining-strict identity)
+# Never commit SNN training, Spikenaut, or ANS design packages from this path.
+/.local/
+
 # Duplicate / legacy under crate tree
 /crates/theseus-mining/legacy/
 
