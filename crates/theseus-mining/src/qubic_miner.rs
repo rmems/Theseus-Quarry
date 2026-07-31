@@ -700,6 +700,11 @@ fn spawn_native_binary(
 
     let mut command = Command::new(&binary);
     if client_kind == QubicClientKind::Qli {
+        // qli-Client loads adjacent settings/content relative to its distribution dir
+        // (same as scripts/mine-qubic.sh: cd "$(dirname "$bin")").
+        if let Some(parent) = std::path::Path::new(&binary).parent() {
+            command.current_dir(parent);
+        }
         let alias = std::env::var("SHIP_WORKER_NAME").unwrap_or_else(|_| "ship-of-theseus".into());
         command
             .arg(format!("--ClientSettings:QubicAddress={wallet}"))
@@ -794,6 +799,9 @@ fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
         Err(e) => eprintln!("[qubic] wait() error: {e}"),
         _ => {}
     }
+    // Same process-group wait as miner::reap_child — leader exit must not
+    // clear Running while workers in the setsid group still hold GPU/CPU.
+    miner::wait_process_group_exit(reaped_pid);
     let mut s = state.lock().unwrap();
     if matches!(
         *s,

@@ -20,14 +20,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install latest stable Rust (edition 2024 workspace)
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# Match rust-toolchain.toml components so non-vscode UIDs are not forced to
+# rustup-install rust-src/rust-analyzer into a root-owned /usr/local/rustup.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
         --default-toolchain stable \
         --profile minimal \
         --component rustfmt \
         --component clippy \
+        --component rust-src \
+        --component rust-analyzer \
     && rustup default stable \
     && rustc --version \
     && cargo --version \
+    && rustup component list --installed \
     && chown -R vscode:vscode "${CARGO_HOME}" "${RUSTUP_HOME}"
 
 WORKDIR /workspace

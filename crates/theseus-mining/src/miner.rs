@@ -53,6 +53,24 @@ fn process_group_alive(pgid: Pid) -> bool {
     }
 }
 
+/// Block until no process remains in the leader's process group (or non-unix).
+///
+/// Used after `Child::wait` so shell wrappers that exit before workers do not
+/// flip miner state to Idle while the group still holds resources.
+pub fn wait_process_group_exit(leader_pid: u32) {
+    #[cfg(unix)]
+    {
+        let pgid = Pid::from_raw(-(leader_pid as i32));
+        while process_group_alive(pgid) {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = leader_pid;
+    }
+}
+
 /// SIGTERM the process group, poll until **the whole group** is gone or timeout,
 /// then SIGKILL the group only if members remain (avoids skipping workers after
 /// the leader exits, and avoids blind sleep-then-kill on a fully dead group).
@@ -88,6 +106,10 @@ pub fn reap_child(mut child: Child, state: Arc<Mutex<MinerState>>, log_prefix: &
         Err(e) => eprintln!("{log_prefix} wait() error: {e}"),
         _ => {}
     }
+    // Shell launch wrappers may exit while workers remain in the process group
+    // (setsid). Stay Running until the whole group is gone so Start cannot
+    // race a second miner and Stop can still kill orphans via the leader PGID.
+    wait_process_group_exit(reaped_pid);
     // Only Idle if this reaper still owns the Running slot — a replacement
     // Start may have already installed a new PID before wait() returned.
     let mut s = state.lock().unwrap();
@@ -127,8 +149,8 @@ pub fn ship_work_dir() -> String {
 
 /// True if `path` is a usable executable (not an empty/text stub).
 ///
-/// Rejects zero-byte files and known ASCII placeholders (e.g. "Not Found").
-/// Accepts small shell launch wrappers when they are executable.
+/// Rejects zero-byte files, HTTP/HTML placeholders, and random blobs.
+/// Accepts ELF binaries and shebang shell wrappers when executable.
 pub fn is_usable_binary(path: &str) -> bool {
     let p = std::path::Path::new(path);
     let Ok(meta) = std::fs::metadata(p) else {
@@ -144,22 +166,52 @@ pub fn is_usable_binary(path: &str) -> bool {
             return false;
         }
     }
-    // Reject known download/placeholder stubs (tiny HTTP error bodies, etc.).
-    if meta.len() <= 64
-        && let Ok(bytes) = std::fs::read(p)
-    {
-        let text = String::from_utf8_lossy(&bytes);
-        let trimmed = text.trim();
-        let placeholder = trimmed.eq_ignore_ascii_case("not found")
-            || trimmed.eq_ignore_ascii_case("404 not found")
-            || trimmed.eq_ignore_ascii_case("forbidden")
-            || trimmed.eq_ignore_ascii_case("error")
-            || trimmed.is_empty();
-        if placeholder {
-            return false;
-        }
+    // Read only a header — full miner binaries can be multi‑MB.
+    let mut file = match std::fs::File::open(p) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut head = [0u8; 512];
+    let n = match std::io::Read::read(&mut file, &mut head) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    let head = &head[..n];
+    if is_download_placeholder(head) {
+        return false;
     }
-    true
+    // Require a recognized executable header so 65–1024 B HTML/error stubs
+    // with +x do not beat real binaries in detect_binary_paths order.
+    looks_like_executable_header(head)
+}
+
+fn is_download_placeholder(bytes: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(bytes);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower == "not found"
+        || lower == "404 not found"
+        || lower == "forbidden"
+        || lower == "error"
+        || lower == "bad gateway"
+        || lower == "service unavailable"
+        || lower.starts_with("<!doctype")
+        || lower.starts_with("<html")
+}
+
+fn looks_like_executable_header(bytes: &[u8]) -> bool {
+    // Shebang scripts (shell launch wrappers).
+    if bytes.starts_with(b"#!") {
+        return true;
+    }
+    // ELF magic (Linux miners).
+    if bytes.len() >= 4 && bytes[0..4] == [0x7f, b'E', b'L', b'F'] {
+        return true;
+    }
+    false
 }
 
 /// Search repo/local/`which` paths without consulting any environment override.
@@ -464,7 +516,35 @@ mod tests {
             std::fs::set_permissions(&wrapper, perms).unwrap();
         }
         assert!(is_usable_binary(wrapper.to_str().unwrap()));
-        // Non-empty binary-ish payload + executable bit is accepted.
+        // Mid-size HTML/error stub with +x must not pass (was a prior hole at 65–1024 B).
+        let html_stub = dir.join("error_html");
+        let mut body = b"<!DOCTYPE html>\n<html><body>Bad Gateway</body></html>\n".to_vec();
+        while body.len() < 200 {
+            body.extend_from_slice(b"x");
+        }
+        std::fs::write(&html_stub, &body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&html_stub).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&html_stub, perms).unwrap();
+        }
+        assert!(!is_usable_binary(html_stub.to_str().unwrap()));
+        // ELF header + executable bit is accepted.
+        let elf = dir.join("fake_elf");
+        let mut f = std::fs::File::create(&elf).unwrap();
+        f.write_all(&[0x7f, b'E', b'L', b'F']).unwrap();
+        f.write_all(&[0u8; 64]).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&elf).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&elf, perms).unwrap();
+        }
+        assert!(is_usable_binary(elf.to_str().unwrap()));
+        // Random blob without shebang/ELF is rejected even when large and +x.
         let fat = dir.join("realish");
         let mut f = std::fs::File::create(&fat).unwrap();
         f.write_all(&vec![0u8; 2048]).unwrap();
@@ -475,7 +555,7 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&fat, perms).unwrap();
         }
-        assert!(is_usable_binary(fat.to_str().unwrap()));
+        assert!(!is_usable_binary(fat.to_str().unwrap()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -59,8 +59,11 @@ jobs:
               --default-toolchain none \
               --profile minimal
           fi
+          # System rustup may exist without $HOME/.cargo/env (set -e would abort).
           # shellcheck disable=SC1091
-          . "${HOME}/.cargo/env"
+          if [ -f "${HOME}/.cargo/env" ]; then
+            . "${HOME}/.cargo/env"
+          fi
           rustup --version
 
       - name: Install latest stable Rust (rust-toolchain.toml)
@@ -71,7 +74,10 @@ jobs:
       - name: Show toolchain
         run: |
           set -euo pipefail
-          . "${HOME}/.cargo/env"
+          # shellcheck disable=SC1091
+          if [ -f "${HOME}/.cargo/env" ]; then
+            . "${HOME}/.cargo/env"
+          fi
           which rustc cargo rustup
           rustc --version --verbose
           cargo --version
