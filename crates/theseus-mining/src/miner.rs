@@ -39,14 +39,40 @@ pub struct MinerConfig {
 
 // ─── Process management ──────────────────────────────────────────────────────
 
+/// True if `pid` still exists (null-signal probe). Used to avoid SIGKILL on a
+/// recycled PID after the grace period.
+#[cfg(unix)]
+fn pid_is_alive(pid: Pid) -> bool {
+    match signal::kill(pid, None) {
+        Ok(()) => true,
+        Err(nix::errno::Errno::ESRCH) => false,
+        // EPERM / other: treat as present so we do not skip a real process.
+        Err(_) => true,
+    }
+}
+
+/// SIGTERM the process group, poll until exit or timeout, then SIGKILL **only if
+/// the original PID is still alive** (avoids signaling a recycled PID after sleep).
 pub fn kill_process_group(pid: Option<u32>, timeout_secs: u64) {
     let Some(pid) = pid else { return };
     #[cfg(unix)]
     {
+        let target = Pid::from_raw(pid as i32);
         let pgid = Pid::from_raw(-(pid as i32));
+        if !pid_is_alive(target) {
+            return;
+        }
         let _ = signal::kill(pgid, Signal::SIGTERM);
-        thread::sleep(Duration::from_secs(timeout_secs));
-        let _ = signal::kill(pgid, Signal::SIGKILL);
+        let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+        while std::time::Instant::now() < deadline {
+            if !pid_is_alive(target) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        if pid_is_alive(target) {
+            let _ = signal::kill(pgid, Signal::SIGKILL);
+        }
     }
 }
 

@@ -746,16 +746,10 @@ fn spawn_native_binary(
     }
 }
 
-/// Send SIGTERM to the process group, wait 3 s, then SIGKILL.
+/// Send SIGTERM to the process group, poll for exit, SIGKILL only if still alive.
 fn kill_native(pid: Option<u32>) {
-    let Some(pid) = pid else { return };
-    #[cfg(unix)]
-    {
-        let pgid = Pid::from_raw(-(pid as i32));
-        let _ = signal::kill(pgid, Signal::SIGTERM);
-        thread::sleep(Duration::from_secs(3));
-        let _ = signal::kill(pgid, Signal::SIGKILL);
-    }
+    // Same PID-reuse-safe path as generic miners.
+    miner::kill_process_group(pid, 3);
 }
 
 fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
