@@ -39,9 +39,6 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
-
 use crate::miner;
 use crate::throttle::MinerCommand;
 use mining_telemetry_core::{MinerBrand, MiningStats, MiningTelemetry, WireMsg};
