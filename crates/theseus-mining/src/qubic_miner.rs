@@ -603,10 +603,15 @@ fn extract_tick_from_json(body: &str) -> Option<u32> {
 
 // ─── Native binary management ────────────────────────────────────────────────
 
+/// Spawn native qli-Client or qubic-core.
+///
+/// `aigarth_enabled` controls `--gpu` / `gpu_enabled` for core. Callers must
+/// pass the desired mode — this does **not** re-read `AIGARTH_ENABLED`, so
+/// `YieldForChat` can pass `false` and free VRAM while the env stays true.
 fn spawn_native_binary(
     telem_tx: &mpsc::Sender<WireMsg>,
     state: Arc<Mutex<QubicMinerState>>,
-    _aigarth_enabled: bool,
+    aigarth_enabled: bool,
 ) -> Option<u32> {
     let Some(binary) = detect_qubic_binary() else {
         let msg = "no usable qli-Client or qubic-core binary found — set QUBIC_MINER_CMD \
@@ -618,10 +623,6 @@ fn spawn_native_binary(
         let _ = telem_tx.send(WireMsg::Status(format!("❌ Qubic: {msg}")));
         return None;
     };
-
-    let aigarth_enabled = std::env::var("AIGARTH_ENABLED")
-        .map(|v| v == "true")
-        .unwrap_or(false);
 
     let client_kind = match detect_qubic_client_kind(&binary) {
         Ok(k) => k,
