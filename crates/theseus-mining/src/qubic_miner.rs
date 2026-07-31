@@ -603,6 +603,37 @@ fn extract_tick_from_json(body: &str) -> Option<u32> {
 
 // ─── Native binary management ────────────────────────────────────────────────
 
+/// CLI args for `qubic-core` (not qli). Pure so Yield/Resume GPU flag can be unit-tested.
+fn native_core_cli_args(
+    wallet: &str,
+    threads: u32,
+    port: u16,
+    peers: &str,
+    aigarth_enabled: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "--threads".into(),
+        threads.to_string(),
+        "--port".into(),
+        port.to_string(),
+        "--identity".into(),
+        wallet.to_string(),
+    ];
+    if aigarth_enabled {
+        args.push("--gpu".into());
+    }
+    if !peers.is_empty() {
+        args.push("--peers".into());
+        args.push(peers.to_string());
+    }
+    args
+}
+
+/// Whether Running state should mark GPU held (core + aigarth only).
+fn native_gpu_enabled(client_kind: QubicClientKind, aigarth_enabled: bool) -> bool {
+    aigarth_enabled && client_kind == QubicClientKind::Core
+}
+
 /// Spawn native qli-Client or qubic-core.
 ///
 /// `aigarth_enabled` controls `--gpu` / `gpu_enabled` for core. Callers must
@@ -676,18 +707,8 @@ fn spawn_native_binary(
             .arg(format!("--ClientSettings:Trainer:CpuThreads={threads}"))
             .arg("--ClientSettings:Trainer:PPS=false");
     } else {
-        command
-            .arg("--threads")
-            .arg(threads.to_string())
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--identity")
-            .arg(&wallet);
-        if aigarth_enabled {
-            command.arg("--gpu");
-        }
-        if !peers.is_empty() {
-            command.arg("--peers").arg(&peers);
+        for arg in native_core_cli_args(&wallet, threads, port, &peers, aigarth_enabled) {
+            command.arg(arg);
         }
     }
 
@@ -710,8 +731,7 @@ fn spawn_native_binary(
                 mode: QubicMode::NativeBinary,
                 pid: Some(pid),
                 native_kind: Some(client_kind),
-                // Aigarth/--gpu only applies to qubic-core, never qli-Client.
-                gpu_enabled: aigarth_enabled && client_kind == QubicClientKind::Core,
+                gpu_enabled: native_gpu_enabled(client_kind, aigarth_enabled),
             };
             let _ = telem_tx.send(WireMsg::Status(format!(
                 "⛏ Qubic miner started (PID {pid}  threads={threads})"
@@ -1016,6 +1036,28 @@ mod tests {
                 std::env::remove_var("QUBIC_WALLET_ADDRESS");
             }
         });
+    }
+
+    #[test]
+    fn yield_false_omits_gpu_flag_on_core_cli() {
+        // YieldForChat passes aigarth_enabled=false — must not re-add --gpu.
+        let args = native_core_cli_args("private-id", 14, 21841, "", false);
+        assert!(
+            !args.iter().any(|a| a == "--gpu"),
+            "expected no --gpu in {args:?}"
+        );
+        assert!(!native_gpu_enabled(QubicClientKind::Core, false));
+    }
+
+    #[test]
+    fn resume_true_includes_gpu_flag_on_core_cli() {
+        let args = native_core_cli_args("private-id", 14, 21841, "", true);
+        assert!(
+            args.iter().any(|a| a == "--gpu"),
+            "expected --gpu in {args:?}"
+        );
+        assert!(native_gpu_enabled(QubicClientKind::Core, true));
+        assert!(!native_gpu_enabled(QubicClientKind::Qli, true));
     }
 
     #[test]
