@@ -64,9 +64,12 @@ pub enum QubicMinerState {
     Idle,
     Starting,
     /// Native mode stores the supervised PID so reapers cannot Idle a replacement.
+    /// `native_kind` / `gpu_enabled` drive YieldForChat (qli is CPU-only — no restart).
     Running {
         mode: QubicMode,
         pid: Option<u32>,
+        native_kind: Option<QubicClientKind>,
+        gpu_enabled: bool,
     },
     Failed(String),
 }
@@ -171,7 +174,7 @@ pub fn detect_qubic_binary() -> Option<String> {
 
 /// Native Qubic client flavor — selects CLI flags **and** which credential env is valid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum QubicClientKind {
+pub enum QubicClientKind {
     /// `qli-Client` / wrappers — public address via `QubicAddress`.
     Qli,
     /// `qubic-core` — private seed via `--identity`.
@@ -355,13 +358,18 @@ fn supervisor_loop(cmd_rx: mpsc::Receiver<MinerCommand>, telem_tx: mpsc::Sender<
             }
 
             MinerCommand::YieldForChat(model) => {
-                let s = state.lock().unwrap();
-                if let QubicMinerState::Running {
-                    mode: QubicMode::NativeBinary,
-                    ..
-                } = *s
-                {
-                    drop(s);
+                // Only GPU-enabled qubic-core holds VRAM; qli-Client is CPU-only and
+                // must not be killed/relaunched on every chat yield.
+                let should_yield = matches!(
+                    *state.lock().unwrap(),
+                    QubicMinerState::Running {
+                        mode: QubicMode::NativeBinary,
+                        native_kind: Some(QubicClientKind::Core),
+                        gpu_enabled: true,
+                        ..
+                    }
+                );
+                if should_yield {
                     eprintln!(
                         "[qubic] yielding GPU for chat ({model}) — restarting without Aigarth"
                     );
@@ -371,21 +379,23 @@ fn supervisor_loop(cmd_rx: mpsc::Receiver<MinerCommand>, telem_tx: mpsc::Sender<
             }
 
             MinerCommand::ResumeAfterChat => {
-                let s = state.lock().unwrap();
-                if let QubicMinerState::Running {
-                    mode: QubicMode::NativeBinary,
-                    ..
-                } = *s
-                {
-                    let aigarth = std::env::var("AIGARTH_ENABLED")
-                        .map(|v| v == "true")
-                        .unwrap_or(false);
-                    if aigarth {
-                        drop(s);
-                        eprintln!("[qubic] resuming Aigarth GPU training after chat");
-                        kill_native(child_pid.take());
-                        child_pid = spawn_native_binary(&telem_tx, Arc::clone(&state), true);
-                    }
+                let aigarth = std::env::var("AIGARTH_ENABLED")
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+                let should_resume = aigarth
+                    && matches!(
+                        *state.lock().unwrap(),
+                        QubicMinerState::Running {
+                            mode: QubicMode::NativeBinary,
+                            native_kind: Some(QubicClientKind::Core),
+                            gpu_enabled: false,
+                            ..
+                        }
+                    );
+                if should_resume {
+                    eprintln!("[qubic] resuming Aigarth GPU training after chat");
+                    kill_native(child_pid.take());
+                    child_pid = spawn_native_binary(&telem_tx, Arc::clone(&state), true);
                 }
             }
 
@@ -426,6 +436,8 @@ fn spawn_podman(
             *state.lock().unwrap() = QubicMinerState::Running {
                 mode: QubicMode::PodmanCompose,
                 pid: None,
+                native_kind: None,
+                gpu_enabled: false,
             };
             let _ = telem_tx.send(WireMsg::Status(
                 "⛏ Qubic containers started (podman-compose)".into(),
@@ -696,6 +708,9 @@ fn spawn_native_binary(
             *state.lock().unwrap() = QubicMinerState::Running {
                 mode: QubicMode::NativeBinary,
                 pid: Some(pid),
+                native_kind: Some(client_kind),
+                // Aigarth/--gpu only applies to qubic-core, never qli-Client.
+                gpu_enabled: aigarth_enabled && client_kind == QubicClientKind::Core,
             };
             let _ = telem_tx.send(WireMsg::Status(format!(
                 "⛏ Qubic miner started (PID {pid}  threads={threads})"
@@ -763,7 +778,8 @@ fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
         *s,
         QubicMinerState::Running {
             mode: QubicMode::NativeBinary,
-            pid: Some(pid)
+            pid: Some(pid),
+            ..
         } if pid == reaped_pid
     ) {
         *s = QubicMinerState::Idle;
