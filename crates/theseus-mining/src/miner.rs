@@ -57,17 +57,37 @@ fn process_group_alive(pgid: Pid) -> bool {
 ///
 /// Used after `Child::wait` so shell wrappers that exit before workers do not
 /// flip miner state to Idle while the group still holds resources.
+///
+/// Bounded wait: after `timeout_secs` SIGKILL the group and return so a zombie
+/// or stuck worker cannot pin the reaper (and miner state) forever.
 pub fn wait_process_group_exit(leader_pid: u32) {
+    wait_process_group_exit_timeout(leader_pid, 30);
+}
+
+/// Like [`wait_process_group_exit`] with an explicit timeout.
+pub fn wait_process_group_exit_timeout(leader_pid: u32, timeout_secs: u64) {
     #[cfg(unix)]
     {
         let pgid = Pid::from_raw(-(leader_pid as i32));
+        let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
         while process_group_alive(pgid) {
+            if std::time::Instant::now() >= deadline {
+                let _ = signal::kill(pgid, Signal::SIGKILL);
+                // Brief drain after SIGKILL; do not loop forever.
+                for _ in 0..20 {
+                    if !process_group_alive(pgid) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+                return;
+            }
             thread::sleep(Duration::from_millis(100));
         }
     }
     #[cfg(not(unix))]
     {
-        let _ = leader_pid;
+        let _ = (leader_pid, timeout_secs);
     }
 }
 
@@ -207,9 +227,18 @@ fn looks_like_executable_header(bytes: &[u8]) -> bool {
     if bytes.starts_with(b"#!") {
         return true;
     }
-    // ELF magic (Linux miners).
-    if bytes.len() >= 4 && bytes[0..4] == [0x7f, b'E', b'L', b'F'] {
-        return true;
+    // ELF: magic + class + e_type (ET_EXEC / ET_DYN). Rejects truncated
+    // downloads that only retain the 4-byte magic prefix.
+    if bytes.len() >= 18 && bytes[0..4] == [0x7f, b'E', b'L', b'F'] {
+        let class = bytes[4]; // 1 = ELFCLASS32, 2 = ELFCLASS64
+        if class != 1 && class != 2 {
+            return false;
+        }
+        // e_type is at offset 16 for both ELF32 and ELF64 (little-endian hosts).
+        let e_type = u16::from_le_bytes([bytes[16], bytes[17]]);
+        const ET_EXEC: u16 = 2;
+        const ET_DYN: u16 = 3;
+        return e_type == ET_EXEC || e_type == ET_DYN;
     }
     false
 }
@@ -531,11 +560,26 @@ mod tests {
             std::fs::set_permissions(&html_stub, perms).unwrap();
         }
         assert!(!is_usable_binary(html_stub.to_str().unwrap()));
-        // ELF header + executable bit is accepted.
+        // ELF header + executable bit is accepted (class 64-bit, ET_DYN).
         let elf = dir.join("fake_elf");
         let mut f = std::fs::File::create(&elf).unwrap();
-        f.write_all(&[0x7f, b'E', b'L', b'F']).unwrap();
-        f.write_all(&[0u8; 64]).unwrap();
+        let mut hdr = [0u8; 64];
+        hdr[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        hdr[4] = 2; // ELFCLASS64
+        hdr[16] = 3; // ET_DYN (little-endian low byte)
+        f.write_all(&hdr).unwrap();
+        // Truncated magic-only ELF must not pass.
+        let trunc = dir.join("trunc_elf");
+        let mut tf = std::fs::File::create(&trunc).unwrap();
+        tf.write_all(&[0x7f, b'E', b'L', b'F', 0, 0, 0, 0]).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&trunc).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&trunc, perms).unwrap();
+        }
+        assert!(!is_usable_binary(trunc.to_str().unwrap()));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

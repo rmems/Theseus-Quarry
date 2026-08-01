@@ -352,7 +352,21 @@ fn supervisor_loop(cmd_rx: mpsc::Receiver<MinerCommand>, telem_tx: mpsc::Sender<
                     stop_podman(cf);
                     compose_file = None;
                 }
-                kill_native(child_pid.take());
+                // Only kill if we still believe the process is Running. After a
+                // natural exit the reaper sets Idle but local `child_pid` can
+                // linger; signalling that PGID risks PID-reuse collateral kill.
+                let still_running = matches!(
+                    *state.lock().unwrap(),
+                    QubicMinerState::Running {
+                        mode: QubicMode::NativeBinary,
+                        ..
+                    }
+                );
+                if still_running {
+                    kill_native(child_pid.take());
+                } else {
+                    child_pid = None;
+                }
                 *state.lock().unwrap() = QubicMinerState::Idle;
                 let _ = telem_tx.send(WireMsg::Status("⏹ Qubic miner stopped".into()));
             }
@@ -702,8 +716,19 @@ fn spawn_native_binary(
     if client_kind == QubicClientKind::Qli {
         // qli-Client loads adjacent settings/content relative to its distribution dir
         // (same as scripts/mine-qubic.sh: cd "$(dirname "$bin")").
-        if let Some(parent) = std::path::Path::new(&binary).parent() {
-            command.current_dir(parent);
+        // PATH-only names like "qli-Client" have an empty parent — resolve first.
+        let bin_path = std::path::Path::new(&binary);
+        let launch_dir = bin_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_path_buf())
+            .or_else(|| {
+                std::fs::canonicalize(bin_path)
+                    .ok()
+                    .and_then(|c| c.parent().map(|p| p.to_path_buf()))
+            });
+        if let Some(dir) = launch_dir {
+            command.current_dir(dir);
         }
         let alias = std::env::var("SHIP_WORKER_NAME").unwrap_or_else(|_| "ship-of-theseus".into());
         command

@@ -19,8 +19,8 @@
       }
     }
   },
-  "postCreateCommand": "rustup show && cargo fetch",
-  "postStartCommand": "cargo check --workspace",
+  "postCreateCommand": "rustup show && cargo fetch --locked",
+  "postStartCommand": "cargo check --workspace --locked",
   "remoteUser": "vscode",
   "containerEnv": {
     "CARGO_TERM_COLOR": "always"
