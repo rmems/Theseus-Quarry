@@ -79,12 +79,12 @@ impl FromStr for MiningAlgo {
             }
         }
 
-        let has_all = parts.iter().any(|p| *p == "all");
-        let has_dynex = parts.iter().any(|p| *p == "dynex");
-        let has_quai = parts.iter().any(|p| *p == "quai");
-        let has_qubic = parts.iter().any(|p| *p == "qubic");
-        let has_kaspa = parts.iter().any(|p| *p == "kaspa");
-        let has_both = parts.iter().any(|p| *p == "both");
+        let has_all = parts.contains(&"all");
+        let has_dynex = parts.contains(&"dynex");
+        let has_quai = parts.contains(&"quai");
+        let has_qubic = parts.contains(&"qubic");
+        let has_kaspa = parts.contains(&"kaspa");
+        let has_both = parts.contains(&"both");
 
         if has_all || (has_dynex && has_quai && has_qubic && has_kaspa) {
             return Ok(MiningAlgo::All);
@@ -206,7 +206,7 @@ impl UnifiedMining {
             telem_tx,
             gpu_mining_paused: false,
             pending_rollback: None,
-            sched_config: sched_config,
+            sched_config,
         }
     }
 
@@ -416,10 +416,43 @@ impl UnifiedMining {
         self.stop();
 
         // 2. Wait for VRAM to free if switching away from GPU algo.
-        if old_algo.runs_dynex() && !new_algo.runs_dynex() {
-            if let Some(ref scheduler) = self.scheduler {
-                scheduler.verify_vram_freed(Duration::from_secs(5));
+        if old_algo.runs_dynex()
+            && !new_algo.runs_dynex()
+            && let Some(ref scheduler) = self.scheduler
+            && !scheduler.verify_vram_freed(Duration::from_secs(5))
+        {
+            eprintln!(
+                "[unified-mining] VRAM not freed after stopping {}; aborting switch to {}",
+                old_algo, new_algo
+            );
+            // Restore miners for the previous algo rather than starting under pressure.
+            self.algo = old_algo;
+            self.dynex = if old_algo.runs_dynex() {
+                Some(DynexMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            self.quai = if old_algo.runs_quai() {
+                Some(QuaiMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            self.qubic = if old_algo.runs_qubic() {
+                Some(QubicMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            self.kaspa = if old_algo.runs_kaspa() {
+                Some(KaspaMiner::new(self.telem_tx.clone()))
+            } else {
+                None
+            };
+            if old_algo.runs_dynex() && self.scheduler.is_none() {
+                self.scheduler = Some(GpuScheduler::new(self.sched_config.clone()));
             }
+            self.gpu_mining_paused = false;
+            self.start();
+            return false;
         }
 
         // 3. Reconstruct miners for new algo.

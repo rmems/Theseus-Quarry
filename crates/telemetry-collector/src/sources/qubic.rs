@@ -1,5 +1,5 @@
-use mining_telemetry_core::node_health;
 use super::TelemetryRecord;
+use mining_telemetry_core::{NodeHealthInput, node_health};
 
 const QUBIC_TICK_URL: &str = "http://127.0.0.1:8099/tick-info";
 
@@ -25,14 +25,11 @@ async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::Tel
     Some(node_health(
         "collector",
         "qubic_telemetry",
-        "qubic",
-        None,
-        None,
-        tick,
-        epoch,
-        None,
-        None,
-        None,
-        None,
+        NodeHealthInput {
+            coin: "qubic".into(),
+            tick,
+            epoch,
+            ..Default::default()
+        },
     ))
 }

@@ -1,0 +1,29 @@
+# Qodana configuration — Theseus-Quarry (Rust workspace, source-only)
+# https://www.jetbrains.com/help/qodana/qodana-yaml.html
+version: "1.0"
+
+# Rust linter (CLI: --linter qodana-rust / image jetbrains/qodana-rust)
+linter: qodana-rust
+
+profile:
+  name: qodana.recommended
+
+# Source-only analysis — skip local runtime / secrets / build noise
+exclude:
+  - name: All
+    paths:
+      - binaries/
+      - target/
+      - .qodana/
+      - data/
+      - logs/
+      - Cache/
+      - Autotune/
+      - .git/
+
+# Fail CI if problem count exceeds this (0 = any new critical gate; keep generous for EAP)
+# failThreshold: 50
+
+bootstrap: |
+  rustc --version || true
+  cargo --version || true

@@ -1,0 +1,97 @@
+# Build the source-only dev image on the self-hosted GPU host (Docker native).
+
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/docker.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/docker.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_TAG: theseus-quarry:dev
+
+jobs:
+  build:
+    name: build · smoke test
+    # Do not run the persistent self-hosted Docker host for fork PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, ryzen]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Sanitize workspace (self-hosted)
+        run: |
+          set -euo pipefail
+          if [ -d target ]; then
+            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Docker version
+        run: docker version
+
+      - name: Build dev image
+        run: |
+          docker build \
+            -f .devcontainer/Dockerfile \
+            -t "${IMAGE_TAG}" \
+            .
+
+      - name: Smoke — cargo test inside image
+        run: |
+          set -euo pipefail
+          # Do not write root-owned target/ into the bind-mounted workspace.
+          # Named volume for CARGO_TARGET_DIR; chown so non-root smoke can write.
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v theseus-quarry-cargo-target:/tmp/target \
+            alpine sh -c "chown -R ${uid}:${gid} /tmp/target && chmod 775 /tmp/target"
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -v theseus-quarry-cargo-target:/tmp/target \
+            -e CARGO_TARGET_DIR=/tmp/target \
+            -e CARGO_HOME=/tmp/target/cargo-home \
+            -w /workspace \
+            --user "${uid}:${gid}" \
+            "${IMAGE_TAG}" \
+            cargo test --workspace --locked
+
+      - name: Cleanup Docker artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          # Remove the locally-tagged dev image and bound disk growth on the runner.
+          docker image rm -f "${IMAGE_TAG}" || true
+          docker image prune -f
+          docker builder prune -f --filter until=168h || true

@@ -24,7 +24,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for QUAI_WALLET_ADDRESS)
     local wallet="${QUAI_WALLET:-${QUAI_WALLET_ADDRESS:-}}"
@@ -38,7 +38,7 @@ preflight_check() {
     local bin="${QUAI_BIN:-$REPO_ROOT/$BINARY_DEFAULT}"
     if [ ! -f "$bin" ]; then
         echo "ERROR: $bin not found"
-        echo "Set QUAI_BIN in .env or place rigel at $BINARY_DEFAULT"
+        echo "Set QUAI_BIN in .env or place ${BINARY_NAME} at $BINARY_DEFAULT"
         exit 1
     fi
     if [ ! -x "$bin" ]; then

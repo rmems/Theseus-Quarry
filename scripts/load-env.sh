@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Shared env loader for mine-*.sh scripts.
 # Prefer XDG config (canonical secrets location); fall back to repo .env.
 #
@@ -35,11 +36,12 @@ if [ -f "$_theseus_repo_env" ]; then
 fi
 
 if [ -z "$_loaded" ]; then
-    echo "ERROR: no mining env found."
+    # Non-fatal: allow env-only launches (MONERO_WALLET already exported, etc.).
+    # Callers (mine-*.sh preflight) still require wallet/binary themselves.
+    echo "WARNING: no mining env file found."
     echo "  Expected: $_theseus_mining_env"
     echo "  Or:       $_theseus_repo_env"
-    echo "Copy .env.example → ~/.config/theseus-quarry/mining.env and fill in values."
-    exit 1
+    echo "  Continuing with process environment only."
 fi
 
 unset _theseus_config_dir _theseus_mining_env _theseus_binaries_env _theseus_repo_env _loaded

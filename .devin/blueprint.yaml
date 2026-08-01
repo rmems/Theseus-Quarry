@@ -1,0 +1,35 @@
+# https://docs.devin.ai/onboard-devin/environment-yaml
+# Repo-level environment for rmems/Theseus-Quarry (Rust workspace, edition 2024).
+# Commands run from the repo root.
+
+initialize: |
+  # System dependencies required by openssl-sys and general build tooling.
+  sudo apt-get update
+  sudo apt-get install -y --no-install-recommends pkg-config libssl-dev build-essential ca-certificates curl git
+
+  # Ensure rustup is available and install the toolchain/components declared in rust-toolchain.toml.
+  if ! command -v rustup >/dev/null 2>&1; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+    echo "PATH=$HOME/.cargo/bin:$PATH" >> "$ENVRC"
+  fi
+  export PATH="$HOME/.cargo/bin:$PATH"
+  rustup show
+
+maintenance: |
+  # Pre-warm dependency cache; --locked fails closed if Cargo.lock is stale
+  # instead of rewriting the committed lockfile.
+  cargo fetch --locked
+
+knowledge:
+  - name: lint
+    contents: |
+      cargo clippy --workspace --all-targets --locked -- -D warnings
+  - name: test
+    contents: |
+      cargo test --workspace --locked
+  - name: build
+    contents: |
+      cargo build --workspace --locked
+  - name: format
+    contents: |
+      cargo fmt --all -- --check

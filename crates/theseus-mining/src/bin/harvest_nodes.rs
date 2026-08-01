@@ -20,12 +20,31 @@ use std::{
 
 #[derive(Parser)]
 struct Args {
-    #[arg(long, default_value = "binaries/mining/nodes/kaspa/logs/rusty-kaspa.log")]
+    #[arg(
+        long,
+        default_value = "binaries/mining/nodes/kaspa/logs/rusty-kaspa.log"
+    )]
     kaspa: PathBuf,
     #[arg(long, default_value = "binaries/mining/nodes/xmr/chain/bitmonero.log")]
     monero: PathBuf,
-    #[arg(long, default_value = "~/Spikenaut-Vault/telemetry/node_sync_harvest.jsonl")]
+    #[arg(long, default_value = "data/telemetry/node_sync_harvest.jsonl")]
     out: PathBuf,
+}
+
+/// Expand a leading `~/` using `$HOME` (std::fs does not shell-expand tildes).
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    if s == "~"
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home);
+    }
+    path
 }
 
 // Mirrors the fields train_snn actually reads from NeuromorphicSnapshot.
@@ -70,19 +89,37 @@ struct Telemetry {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let out_file = File::create(&args.out)?;
+    let out_path = expand_tilde(args.out);
+    let monero_path = expand_tilde(args.monero);
+    let kaspa_path = expand_tilde(args.kaspa);
+    // Bare filenames (`out.jsonl`) have an empty parent; create_dir_all("") fails.
+    if let Some(parent) = out_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let out_file = File::create(&out_path)?;
     let mut writer = BufWriter::new(out_file);
     let mut total = 0usize;
 
     // ── Monero ────────────────────────────────────────────────────────
     // Log line: "Synced 3198616/3634345 (88%, 435729 left)"
-    if args.monero.exists() {
-        let reader = BufReader::new(File::open(&args.monero)?);
+    if monero_path.exists() {
+        let reader = BufReader::new(File::open(&monero_path)?);
         let mut prev_height = 0u64;
         let mut prev_ts_secs = 0f64;
 
-        for line in reader.lines().map_while(Result::ok) {
-            if !line.contains("Synced ") { continue; }
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[harvest] monero line read error: {e}");
+                    continue;
+                }
+            };
+            if !line.contains("Synced ") {
+                continue;
+            }
 
             let (current, total_blocks, ts_secs) = match parse_monero_line(&line) {
                 Some(v) => v,
@@ -102,7 +139,7 @@ fn main() -> anyhow::Result<()> {
                 timestamp: line[..23].trim().to_string(),
                 telemetry: Telemetry {
                     hashrate_mh: ingestion_rate,
-                    power_w: sync_frac * 400.0,          // map to watts range engine expects
+                    power_w: sync_frac * 400.0, // map to watts range engine expects
                     gpu_temp_c: 40.0 + remaining_frac * 40.0, // stress rises when far from done
                     qubic_tick_trace: if blk_delta > 0.0 { 1.0 } else { 0.0 },
                     qubic_epoch_progress: sync_frac,
@@ -123,7 +160,7 @@ fn main() -> anyhow::Result<()> {
         }
         eprintln!("[harvest] Monero: {} records", total);
     } else {
-        eprintln!("[harvest] Monero log not found: {}", args.monero.display());
+        eprintln!("[harvest] Monero log not found: {}", monero_path.display());
     }
 
     // ── Kaspa ─────────────────────────────────────────────────────────
@@ -131,11 +168,20 @@ fn main() -> anyhow::Result<()> {
     //            (0 transactions; 0 UTXO-validated blocks; 0.00 parents;
     //             0.00 mergeset; 0.00 TPB; 0.0 mass)"
     let kaspa_start = total;
-    if args.kaspa.exists() {
-        let reader = BufReader::new(File::open(&args.kaspa)?);
+    if kaspa_path.exists() {
+        let reader = BufReader::new(File::open(&kaspa_path)?);
 
-        for line in reader.lines().map_while(Result::ok) {
-            if !line.contains("Processed") || !line.contains("blocks") { continue; }
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[harvest] kaspa line read error: {e}");
+                    continue;
+                }
+            };
+            if !line.contains("Processed") || !line.contains("blocks") {
+                continue;
+            }
 
             let (blocks, headers, interval_s) = match parse_kaspa_line(&line) {
                 Some(v) => v,
@@ -171,11 +217,11 @@ fn main() -> anyhow::Result<()> {
         }
         eprintln!("[harvest] Kaspa: {} records", total - kaspa_start);
     } else {
-        eprintln!("[harvest] Kaspa log not found: {}", args.kaspa.display());
+        eprintln!("[harvest] Kaspa log not found: {}", kaspa_path.display());
     }
 
     writer.flush()?;
-    println!("Harvested {} total records → {}", total, args.out.display());
+    println!("Harvested {} total records → {}", total, out_path.display());
     Ok(())
 }
 
@@ -219,10 +265,14 @@ fn parse_kaspa_line(line: &str) -> Option<(u64, u64, f32)> {
 /// Very lightweight ISO-ish timestamp → seconds-since-midnight (good enough for delta).
 fn parse_timestamp_secs(s: &str) -> f64 {
     // "2026-03-20 12:51:46.179"
-    let parts: Vec<&str> = s.trim().split_whitespace().collect();
-    if parts.len() < 2 { return 0.0; }
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    if parts.len() < 2 {
+        return 0.0;
+    }
     let time_parts: Vec<&str> = parts[1].split(':').collect();
-    if time_parts.len() < 3 { return 0.0; }
+    if time_parts.len() < 3 {
+        return 0.0;
+    }
     let h: f64 = time_parts[0].parse().unwrap_or(0.0);
     let m: f64 = time_parts[1].parse().unwrap_or(0.0);
     let s: f64 = time_parts[2].parse().unwrap_or(0.0);

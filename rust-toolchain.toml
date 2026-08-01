@@ -1,0 +1,19 @@
+# Pin the project to the latest stable Rust release channel.
+# `rustup` installs this toolchain (+ components) when you enter the repo.
+# CI uses the same file via dtolnay/rust-toolchain@stable.
+#
+# Install/update locally:
+#   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#   rustup show   # should pick up this file
+#   rustup update stable
+#   rustup component add rustfmt clippy rust-src rust-analyzer
+
+[toolchain]
+channel = "stable"
+components = [
+    "rustfmt",
+    "clippy",
+    "rust-src",
+    "rust-analyzer",
+]
+profile = "default"

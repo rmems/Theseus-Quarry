@@ -1,0 +1,33 @@
+{
+  "name": "Theseus-Quarry",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.cargo.features": "all"
+      }
+    }
+  },
+  "postCreateCommand": "rustup show && cargo fetch --locked",
+  "postStartCommand": "cargo check --workspace --locked",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "CARGO_TERM_COLOR": "always"
+  },
+  "forwardPorts": [],
+  "mounts": [],
+  "runArgs": [],
+  "features": {},
+  "notes": "Do not mount host binaries/ or wallet paths by default (secrets). For local mining against host binaries, add an optional bind mount in your local override. GPU: on a host with NVIDIA Container Toolkit you may add runArgs: [\"--gpus\", \"all\"]."
+}

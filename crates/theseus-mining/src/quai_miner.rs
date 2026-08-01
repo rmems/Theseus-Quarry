@@ -7,7 +7,7 @@
 
 use std::io::BufRead;
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use mining_telemetry_core::{MinerBrand, WireMsg};
@@ -40,10 +40,10 @@ fn detect_miner_cmd(mode: QuaiMiningMode) -> Option<Vec<String>> {
         }
     }
 
-    if mode != QuaiMiningMode::Cpu {
-        if let Some(rigel) = detect_rigel_binary() {
-            return Some(vec![rigel]);
-        }
+    if mode != QuaiMiningMode::Cpu
+        && let Some(rigel) = detect_rigel_binary()
+    {
+        return Some(vec![rigel]);
     }
 
     let base = miner::ship_work_dir();
@@ -246,6 +246,10 @@ fn spawn_process(
     let binary_lc = binary.to_ascii_lowercase();
     if binary_lc.contains("rigel") {
         let Some(wallet_addr) = wallet.as_deref() else {
+            let msg = "QUAI_WALLET_ADDRESS missing or invalid — cannot start Rigel";
+            eprintln!("[quai-miner] {msg}");
+            *state.lock().unwrap() = QuaiMinerState::Failed(msg.to_string());
+            let _ = telem_tx.send(WireMsg::Status(format!("[quai-miner] {msg}")));
             return None;
         };
         let rigel_pool = normalize_rigel_pool(&pool);
@@ -303,7 +307,10 @@ fn spawn_process(
                 thread::Builder::new()
                     .name("quai-stderr".into())
                     .spawn(move || {
-                        for line in std::io::BufReader::new(stderr).lines().flatten() {
+                        for line in std::io::BufReader::new(stderr)
+                            .lines()
+                            .map_while(Result::ok)
+                        {
                             eprintln!("[quai-stderr] {line}");
                         }
                     })

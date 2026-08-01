@@ -1,0 +1,14 @@
+# Keep the Docker context source-only and small.
+.git
+.github
+.qodana
+target
+binaries
+data
+logs
+Cache
+Autotune
+**/*.log
+.env
+.env.*
+!.env.example

@@ -1,7 +1,7 @@
 //! Kaspa miner — spawns `bzminer --algo kaspa` as a managed subprocess.
 
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use mining_telemetry_core::{MinerBrand, WireMsg};
 
@@ -92,13 +92,7 @@ fn spawn_bzminer(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let pid = miner::spawn_managed_process(
-        command,
-        "kaspa",
-        state,
-        telem_tx,
-        MinerBrand::BzMiner,
-    );
+    let pid = miner::spawn_managed_process(command, "kaspa", state, telem_tx, MinerBrand::BzMiner);
 
     if let Some(p) = pid {
         let _ = telem_tx.send(WireMsg::Status(format!("[kaspa] miner started (PID {p})")));
@@ -117,11 +111,18 @@ mod tests {
     #[test]
     fn detect_binary_env_override() {
         crate::miner::with_env_lock(|| {
-                unsafe { std::env::set_var("KASPA_MINER_CMD", "/custom/path/bzminer"); }
-                let result = detect_kaspa_binary();
-                unsafe { std::env::remove_var("KASPA_MINER_CMD"); }
-                // May or may not match depending on canonical path existing
-                let _ = result;
+            let prior = std::env::var("KASPA_MINER_CMD").ok();
+            unsafe {
+                std::env::set_var("KASPA_MINER_CMD", "/custom/path/bzminer");
+            }
+            let result = detect_kaspa_binary();
+            unsafe {
+                match prior {
+                    Some(v) => std::env::set_var("KASPA_MINER_CMD", v),
+                    None => std::env::remove_var("KASPA_MINER_CMD"),
+                }
+            }
+            assert_eq!(result.as_deref(), Some("/custom/path/bzminer"));
         });
     }
 

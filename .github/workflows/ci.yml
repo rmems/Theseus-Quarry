@@ -1,0 +1,159 @@
+# Source-only CI: Rust quality + Qodana on self-hosted GPU-capable runner.
+# Latest stable Rust (dtolnay/rust-toolchain@stable + rust-toolchain.toml).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTUP_INIT_SKIP_PATH_CHECK: "yes"
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    # Private repo: trusted self-hosted runner (labels: self-hosted, Linux, X64, ryzen).
+    # Fork PRs are not executed on the persistent self-hosted host; trusted in-repo PRs still run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, ryzen]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Sanitize workspace (self-hosted)
+        run: |
+          set -euo pipefail
+          # Prior docker smoke as root can leave unwritable target/ and break checkout clean.
+          if [ -d target ]; then
+            echo "Clearing prior target/ via alpine container (handles root-owned files)..."
+            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Ensure rustup (prefer over distro rustc)
+        run: |
+          set -euo pipefail
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          if ! command -v rustup >/dev/null 2>&1; then
+            echo "Installing rustup..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+              --default-toolchain none \
+              --profile minimal
+          fi
+          # System rustup may exist without $HOME/.cargo/env (set -e would abort).
+          # shellcheck disable=SC1091
+          if [ -f "${HOME}/.cargo/env" ]; then
+            . "${HOME}/.cargo/env"
+          fi
+          rustup --version
+
+      - name: Install latest stable Rust (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: rustfmt, clippy, rust-src
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          if [ -f "${HOME}/.cargo/env" ]; then
+            . "${HOME}/.cargo/env"
+          fi
+          which rustc cargo rustup
+          rustc --version --verbose
+          cargo --version
+          rustup show
+          rustup component list --installed | grep -E 'rustfmt|clippy|rust-src' || true
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: theseus-quarry-ci
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  qodana:
+    name: qodana · rust
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, ryzen]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write
+      checks: write
+
+    steps:
+      - name: Sanitize workspace (self-hosted)
+        run: |
+          set -euo pipefail
+          if [ -d target ]; then
+            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Qodana Rust scan
+        env:
+          QODANA_IMAGE: jetbrains/qodana-rust:2026.1-eap
+        run: |
+          set -euo pipefail
+          RESULTS="${{ runner.temp }}/qodana-results"
+          mkdir -p "$RESULTS"
+
+          if command -v qodana >/dev/null 2>&1; then
+            qodana scan \
+              --config qodana.yaml \
+              --image "${QODANA_IMAGE}" \
+              --project-dir . \
+              --results-dir "$RESULTS" \
+              --print-problems \
+              --skip-pull
+          else
+            echo "qodana CLI not on PATH; running via Docker image"
+            docker run --rm \
+              -v "$PWD:/data/project" \
+              -v "$RESULTS:/data/results" \
+              "${QODANA_IMAGE}" \
+              --config qodana.yaml \
+              --print-problems
+          fi
+
+      - name: Upload Qodana SARIF
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qodana-sarif
+          path: |
+            ${{ runner.temp }}/qodana-results/qodana.sarif.json
+            ${{ runner.temp }}/qodana-results/qodana-short.sarif.json
+          if-no-files-found: warn

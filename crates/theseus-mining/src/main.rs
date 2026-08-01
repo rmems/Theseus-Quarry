@@ -20,13 +20,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::Parser;
-use tracing::{info, Level};
-use tracing_subscriber;
+use tracing::{Level, info};
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use mining_telemetry_core::{envelopes_from_wire, JsonlSink, WireMsg, SCHEMA_VERSION};
+use mining_telemetry_core::{JsonlSink, SCHEMA_VERSION, WireMsg, envelopes_from_wire};
 use theseus_mining::gpu_scheduler::GpuSchedulerConfig;
 use theseus_mining::mining_supervisor::{MiningAlgo, UnifiedMining};
 use theseus_mining::rotation::{MarketSnapshot, RotationConfig};
@@ -117,7 +116,7 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
@@ -130,10 +129,14 @@ fn main() -> Result<()> {
 
     if let Some(ref w) = args.wallet {
         // SAFETY: called before spawning threads
-        unsafe { std::env::set_var("SHIP_WALLET", w); }
+        unsafe {
+            std::env::set_var("SHIP_WALLET", w);
+        }
     }
     if let Some(ref w) = args.quai_wallet {
-        unsafe { std::env::set_var("QUAI_WALLET_ADDRESS", w); }
+        unsafe {
+            std::env::set_var("QUAI_WALLET_ADDRESS", w);
+        }
     }
     unsafe {
         std::env::set_var("QUAI_POOL", &args.quai_pool);
@@ -209,8 +212,15 @@ fn main() -> Result<()> {
                         let k = &t.stats.kaspa;
                         let m = &t.stats.monero;
                         let v = &t.stats.verus;
-                        info!("[mining] dynex={:.3}MH/s quai={:.3}MH/s qubic={:.0}kH/s kaspa={:.3}MH/s monero={:.0}h/s verus={:.0}h/s",
-                            d.hashrate_mh_s, q.hashrate_mh_s, qb.hashrate_kh_s, k.hashrate_mh_s, m.hashrate_h_s, v.hashrate_h_s);
+                        info!(
+                            "[mining] dynex={:.3}MH/s quai={:.3}MH/s qubic={:.0}kH/s kaspa={:.3}MH/s monero={:.0}h/s verus={:.0}h/s",
+                            d.hashrate_mh_s,
+                            q.hashrate_mh_s,
+                            qb.hashrate_kh_s,
+                            k.hashrate_mh_s,
+                            m.hashrate_h_s,
+                            v.hashrate_h_s
+                        );
                     }
                     WireMsg::GpuSchedulerEvent(e) => {
                         info!("[gpu-sched] decision={} vram={}/{}MB temp={:.1}°C",
@@ -350,7 +360,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn setup_signal_flag() {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
+        use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
         extern "C" fn handler(_: nix::libc::c_int) {
             SHUTDOWN.store(true, Ordering::SeqCst);

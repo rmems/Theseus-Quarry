@@ -14,7 +14,6 @@ LOG_DIR="$REPO_ROOT/data/logs"
 
 # ─── Coin-specific defaults ───────────────────────────────────────────────────
 COIN="verus"
-BINARY_NAME="hellminer"
 BINARY_DEFAULT="binaries/mining/nodes/verus/bin/hellminer"
 FALLBACK_BINARY="binaries/mining/SRBMiner-Multi-3-2-2/SRBMiner-MULTI"
 LOG_FILE="$LOG_DIR/${COIN}.log"
@@ -25,7 +24,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for VRSC_WALLET_ADDRESS)
     local wallet="${VRSC_WALLET:-${VRSC_WALLET_ADDRESS:-}}"
@@ -44,7 +43,9 @@ preflight_check() {
             bin="$REPO_ROOT/$FALLBACK_BINARY"
         else
             echo "ERROR: No Verus miner found"
-            echo "Set VRSC_BIN in .env or place hellminer/SRBMiner in binaries/mining/"
+            echo "Set VRSC_BIN in .env, or place a binary at one of:"
+            echo "  $REPO_ROOT/$BINARY_DEFAULT"
+            echo "  $REPO_ROOT/$FALLBACK_BINARY"
             exit 1
         fi
     fi

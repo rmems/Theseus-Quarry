@@ -1,7 +1,7 @@
 //! Dynex miner — spawns `onezerominer --algo dynex` as a managed subprocess.
 
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use mining_telemetry_core::{MinerBrand, WireMsg};
 
@@ -98,13 +98,8 @@ fn spawn_onezerominer(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let pid = miner::spawn_managed_process(
-        command,
-        "dynex",
-        state,
-        telem_tx,
-        MinerBrand::DynexSolver,
-    );
+    let pid =
+        miner::spawn_managed_process(command, "dynex", state, telem_tx, MinerBrand::DynexSolver);
 
     if let Some(p) = pid {
         eprintln!("[dynex] spawned PID {p}  pool={pool}  device={device}  api=:{api_port}");
@@ -121,7 +116,7 @@ fn spawn_onezerominer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mining_telemetry_core::{extract_count_after, MiningStats};
+    use mining_telemetry_core::{MiningStats, extract_count_after};
 
     #[test]
     fn detect_binary_env_override() {

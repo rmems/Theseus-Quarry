@@ -1,7 +1,7 @@
+use super::TelemetryRecord;
 use mining_telemetry_core::host_hw;
 use std::sync::Mutex;
 use std::time::Instant;
-use super::TelemetryRecord;
 
 const RAPL_PATH: &str = "/sys/class/powercap/intel-rapl:0/energy_uj";
 

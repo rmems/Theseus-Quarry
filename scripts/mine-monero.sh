@@ -14,7 +14,6 @@ LOG_DIR="$REPO_ROOT/data/logs"
 
 # ─── Coin-specific defaults ───────────────────────────────────────────────────
 COIN="monero"
-BINARY_NAME="SRBMiner-MULTI"
 BINARY_DEFAULT="binaries/mining/SRBMiner-Multi-3-2-2/SRBMiner-MULTI"
 LOG_FILE="$LOG_DIR/${COIN}.log"
 API_PORT="${MONERO_API_PORT:-4015}"
@@ -25,7 +24,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for MONERO_WALLET_ADDRESS)
     local wallet="${MONERO_WALLET:-${MONERO_WALLET_ADDRESS:-}}"
@@ -35,28 +34,40 @@ preflight_check() {
         exit 1
     fi
 
-    # Check binary (SRBMiner first, then xmrig fallback)
+    # Check binary (SRBMiner first, then xmrig fallback, then PATH)
     local bin="${MONERO_BIN:-}"
     if [ -z "$bin" ]; then
         if [ -f "$REPO_ROOT/$BINARY_DEFAULT" ]; then
             bin="$REPO_ROOT/$BINARY_DEFAULT"
         elif [ -f "$REPO_ROOT/binaries/mining/xmrig/xmrig" ]; then
             bin="$REPO_ROOT/binaries/mining/xmrig/xmrig"
-        elif command -v xmrig &>/dev/null; then
-            bin="xmrig"
+        elif bin="$(command -v xmrig 2>/dev/null)" && [ -n "$bin" ]; then
+            :
+
         else
             echo "ERROR: No Monero miner found"
-            echo "Set MONERO_BIN in .env or place SRBMiner/xmrig in binaries/mining/"
+            echo "Set MONERO_BIN in .env, or place a binary at one of:"
+            echo "  $REPO_ROOT/$BINARY_DEFAULT"
+            echo "  $REPO_ROOT/binaries/mining/xmrig/xmrig"
+            echo "  or ensure xmrig is on PATH"
             exit 1
         fi
     fi
 
+    # Require a regular file that is executable (reject dirs/symlinks-to-dirs).
     if [ ! -f "$bin" ]; then
-        echo "ERROR: $bin not found"
+        echo "ERROR: $bin not found (need a regular file, not a directory)"
         exit 1
     fi
     if [ ! -x "$bin" ]; then
-        chmod +x "$bin"
+        chmod +x "$bin" || {
+            echo "ERROR: $bin is not executable"
+            exit 1
+        }
+    fi
+    # Export resolved path so start_miner reuses the same binary (incl. PATH hits).
+    if [ -z "${MONERO_BIN:-}" ]; then
+        export MONERO_BIN="$bin"
     fi
 }
 

@@ -1,0 +1,7 @@
+# Self-hosted runner labels used by Theseus-Quarry CI (ShipOfTheseus).
+# https://github.com/rhysd/actionlint/blob/main/docs/config.md
+self-hosted-runner:
+  labels:
+    - ryzen
+    - Linux
+    - X64

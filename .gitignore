@@ -5,6 +5,8 @@
 # Large / local runtime (miners, nodes, blockchain DBs — often 100GB+)
 /binaries/
 /target/
+/.qodana/
+
 /Cache/
 /Autotune/
 /logs/
@@ -45,10 +47,16 @@ ocean.env
 .mimocode/
 .opencode/
 .codex/
-.cursor/
+.cursor/*
+!.cursor/Dockerfile
+!.cursor/environment.json
 .zed/
 .claude/
 .grok/
+
+# Local research / neuromorphic consumer design (out of mining-strict identity)
+# Never commit SNN training, Spikenaut, or ANS design packages from this path.
+/.local/
 
 # Duplicate / legacy under crate tree
 /crates/theseus-mining/legacy/

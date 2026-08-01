@@ -74,12 +74,78 @@ See `CONTEXT.md` for domain terms (envelope, kind, stem, adapters).
 
 ## Build
 
+Requires **rustup** (not only a distro `rustc` package). `rust-toolchain.toml` pins the **latest stable** channel and installs `rustfmt`, `clippy`, `rust-src`, and `rust-analyzer`.
+
 ```bash
+# one-time / update toolchain
+./scripts/setup-rust.sh
+# ensure ~/.cargo/bin is first on PATH
+source "$HOME/.cargo/env"
+
 cargo build --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Requires a recent Rust toolchain (edition 2024). GPU NVML features need NVIDIA drivers where used.
+Edition 2024. GPU NVML features need NVIDIA drivers on the host where used.
+
+### Dev Container / Docker
+
+Source-only image (no `binaries/`, wallets, or `.env`):
+
+```bash
+docker build -f .devcontainer/Dockerfile -t theseus-quarry:dev .
+# Run as the host user so Cargo does not create root-owned target/ on the bind mount.
+docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  -e CARGO_HOME=/tmp/cargo \
+  -e CARGO_TARGET_DIR=/tmp/target \
+  -v "$PWD:/workspace" -w /workspace \
+  theseus-quarry:dev bash
+```
+
+Or open the repo in VS Code / Cursor **Dev Containers** (`.devcontainer/`). Do not mount host wallet paths into the container by default.
+
+### CI (self-hosted GPU runner)
+
+GitHub Actions runs on a **self-hosted** runner with labels:
+
+`self-hosted`, `Linux`, `X64`, `ryzen`
+
+| Workflow | What it does |
+|----------|----------------|
+| `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace`; self-hosted **qodana · rust** |
+| `Qodana` | Cloud scan via `JetBrains/qodana-action@v2026.1` (`.github/workflows/code_quality.yml`) — needs `QODANA_TOKEN` |
+| `Docker` | Build `.devcontainer/Dockerfile`, smoke `cargo test` in the image |
+
+Add the Qodana Cloud project token as a repo secret: **Settings → Secrets → `QODANA_TOKEN`**.
+
+Local Qodana (optional):
+
+```bash
+qodana scan --config qodana.yaml --image jetbrains/qodana-rust:2026.1-eap --skip-pull --print-problems
+```
+
+On the runner host (e.g. ShipOfTheseus):
+
+```bash
+cd ~/actions-runner/Theseus-Quarry-runner
+# preferred: install as a service (needs sudo once)
+sudo ./svc.sh install
+sudo ./svc.sh start
+sudo ./svc.sh status
+# or foreground: ./run.sh
+```
+
+Confirm online:
+
+```bash
+gh api repos/rmems/Theseus-Quarry/actions/runners \
+  --jq '.runners[] | {name, status, labels: [.labels[].name]}'
+```
+
+CI never needs mining binaries or secrets checked into git.
 
 ## Coins (orchestration targets)
 

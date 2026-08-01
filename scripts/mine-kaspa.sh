@@ -25,7 +25,7 @@ preflight_check() {
 
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
-    source "$REPO_ROOT/scripts/load-env.sh"
+    source "$SCRIPT_DIR/load-env.sh"
 
     # Check wallet (with backward compat for KASPA_WALLET_ADDRESS)
     local wallet="${KASPA_WALLET:-${KASPA_WALLET_ADDRESS:-}}"
@@ -39,7 +39,7 @@ preflight_check() {
     local bin="${KASPA_BIN:-$REPO_ROOT/$BINARY_DEFAULT}"
     if [ ! -f "$bin" ]; then
         echo "ERROR: $bin not found"
-        echo "Set KASPA_BIN in .env or place bzminer at $BINARY_DEFAULT"
+        echo "Set KASPA_BIN in .env or place ${BINARY_NAME} at $BINARY_DEFAULT"
         exit 1
     fi
     if [ ! -x "$bin" ]; then
