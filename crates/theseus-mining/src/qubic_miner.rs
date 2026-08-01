@@ -712,13 +712,15 @@ fn spawn_native_binary(
 
     *state.lock().unwrap() = QubicMinerState::Starting;
 
-    let mut command = Command::new(&binary);
+    // Always spawn the absolute resolved path. For qli we also chdir to the
+    // binary's parent; if Command::new kept a relative path like `dist/qli-Client`,
+    // that relative component would be re-resolved against the new cwd and
+    // become `dist/dist/qli-Client`.
+    let resolved = miner::resolve_executable_path(&binary);
+    let mut command = Command::new(&resolved);
     if client_kind == QubicClientKind::Qli {
         // qli-Client loads adjacent settings/content relative to its distribution dir
         // (same as scripts/mine-qubic.sh: cd "$(dirname "$bin")").
-        // PATH-only names need which→absolute path before dirname (canonicalize
-        // alone only searches the supervisor cwd).
-        let resolved = miner::resolve_executable_path(&binary);
         if let Some(dir) = resolved.parent().filter(|p| !p.as_os_str().is_empty()) {
             command.current_dir(dir);
         }

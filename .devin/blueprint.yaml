@@ -16,19 +16,20 @@ initialize: |
   rustup show
 
 maintenance: |
-  # Pre-warm dependency cache for faster first builds/tests.
-  cargo fetch
+  # Pre-warm dependency cache; --locked fails closed if Cargo.lock is stale
+  # instead of rewriting the committed lockfile.
+  cargo fetch --locked
 
 knowledge:
   - name: lint
     contents: |
-      cargo clippy --all-targets --all-features -- -D warnings
+      cargo clippy --workspace --all-targets --locked -- -D warnings
   - name: test
     contents: |
-      cargo test --all-features
+      cargo test --workspace --locked
   - name: build
     contents: |
-      cargo build --all-features
+      cargo build --workspace --locked
   - name: format
     contents: |
-      cargo fmt --check
+      cargo fmt --all -- --check
