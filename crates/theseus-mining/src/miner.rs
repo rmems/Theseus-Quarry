@@ -53,41 +53,38 @@ fn process_group_alive(pgid: Pid) -> bool {
     }
 }
 
-/// Block until no process remains in the leader's process group (or non-unix).
+/// Wait until no process remains in the leader's process group.
+///
+/// Returns `true` if the group fully exited. Returns `false` on timeout without
+/// signalling — SIGKILL belongs on the explicit [`kill_process_group`] stop path
+/// only. Backgrounding launch wrappers that leave healthy workers in the group
+/// must not be mass-killed by the reaper after a fixed delay.
 ///
 /// Used after `Child::wait` so shell wrappers that exit before workers do not
-/// flip miner state to Idle while the group still holds resources.
-///
-/// Bounded wait: after `timeout_secs` SIGKILL the group and return so a zombie
-/// or stuck worker cannot pin the reaper (and miner state) forever.
-pub fn wait_process_group_exit(leader_pid: u32) {
-    wait_process_group_exit_timeout(leader_pid, 30);
+/// flip miner state to Idle while the group still holds resources (callers should
+/// keep `Running` when this returns `false`).
+pub fn wait_process_group_exit(leader_pid: u32) -> bool {
+    wait_process_group_exit_timeout(leader_pid, 30)
 }
 
-/// Like [`wait_process_group_exit`] with an explicit timeout.
-pub fn wait_process_group_exit_timeout(leader_pid: u32, timeout_secs: u64) {
+/// Like [`wait_process_group_exit`] with an explicit timeout. Never SIGKILLs.
+pub fn wait_process_group_exit_timeout(leader_pid: u32, timeout_secs: u64) -> bool {
     #[cfg(unix)]
     {
         let pgid = Pid::from_raw(-(leader_pid as i32));
         let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
         while process_group_alive(pgid) {
             if std::time::Instant::now() >= deadline {
-                let _ = signal::kill(pgid, Signal::SIGKILL);
-                // Brief drain after SIGKILL; do not loop forever.
-                for _ in 0..20 {
-                    if !process_group_alive(pgid) {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(50));
-                }
-                return;
+                return false;
             }
             thread::sleep(Duration::from_millis(100));
         }
+        true
     }
     #[cfg(not(unix))]
     {
         let _ = (leader_pid, timeout_secs);
+        true
     }
 }
 
@@ -129,7 +126,15 @@ pub fn reap_child(mut child: Child, state: Arc<Mutex<MinerState>>, log_prefix: &
     // Shell launch wrappers may exit while workers remain in the process group
     // (setsid). Stay Running until the whole group is gone so Start cannot
     // race a second miner and Stop can still kill orphans via the leader PGID.
-    wait_process_group_exit(reaped_pid);
+    // Do not SIGKILL here — that is reserved for explicit Stop.
+    let group_gone = wait_process_group_exit(reaped_pid);
+    if !group_gone {
+        eprintln!(
+            "{log_prefix} process group still alive after wait timeout \
+             (PID {reaped_pid}); leaving Running so Stop can kill orphans"
+        );
+        return;
+    }
     // Only Idle if this reaper still owns the Running slot — a replacement
     // Start may have already installed a new PID before wait() returned.
     let mut s = state.lock().unwrap();
@@ -234,8 +239,12 @@ fn looks_like_executable_header(bytes: &[u8]) -> bool {
         if class != 1 && class != 2 {
             return false;
         }
-        // e_type is at offset 16 for both ELF32 and ELF64 (little-endian hosts).
-        let e_type = u16::from_le_bytes([bytes[16], bytes[17]]);
+        // e_type at offset 16; EI_DATA (bytes[5]) selects byte order.
+        let e_type = match bytes[5] {
+            1 => u16::from_le_bytes([bytes[16], bytes[17]]), // ELFDATA2LSB
+            2 => u16::from_be_bytes([bytes[16], bytes[17]]), // ELFDATA2MSB
+            _ => return false,
+        };
         const ET_EXEC: u16 = 2;
         const ET_DYN: u16 = 3;
         return e_type == ET_EXEC || e_type == ET_DYN;
@@ -263,16 +272,43 @@ pub fn detect_binary_paths(
         }
     }
 
-    if Command::new("which")
-        .arg(which_name)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    // Return the absolute path from `which`, not the bare name — callers use
+    // the path for cwd/settings discovery (e.g. qli-Client).
+    if let Ok(output) = Command::new("which").arg(which_name).output()
+        && output.status.success()
     {
-        return Some(which_name.to_string());
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() && is_usable_binary(&path) {
+            return Some(path);
+        }
     }
 
     None
+}
+
+/// Resolve a binary name or path to an absolute path when possible (`which` + canonicalize).
+pub fn resolve_executable_path(binary: &str) -> std::path::PathBuf {
+    let p = std::path::Path::new(binary);
+    if p.is_absolute() {
+        return std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    }
+    if let Some(parent) = p.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        // Relative path with a directory component.
+        return std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    }
+    // Bare name: search PATH via which.
+    if let Ok(output) = Command::new("which").arg(binary).output()
+        && output.status.success()
+    {
+        let found = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !found.is_empty() {
+            let fp = std::path::Path::new(&found);
+            return std::fs::canonicalize(fp).unwrap_or_else(|_| fp.to_path_buf());
+        }
+    }
+    p.to_path_buf()
 }
 
 /// Detect a binary: env override → canonical paths under repo → local paths → `which`.
@@ -566,6 +602,7 @@ mod tests {
         let mut hdr = [0u8; 64];
         hdr[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
         hdr[4] = 2; // ELFCLASS64
+        hdr[5] = 1; // ELFDATA2LSB
         hdr[16] = 3; // ET_DYN (little-endian low byte)
         f.write_all(&hdr).unwrap();
         // Truncated magic-only ELF must not pass.

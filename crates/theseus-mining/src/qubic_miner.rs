@@ -716,18 +716,10 @@ fn spawn_native_binary(
     if client_kind == QubicClientKind::Qli {
         // qli-Client loads adjacent settings/content relative to its distribution dir
         // (same as scripts/mine-qubic.sh: cd "$(dirname "$bin")").
-        // PATH-only names like "qli-Client" have an empty parent — resolve first.
-        let bin_path = std::path::Path::new(&binary);
-        let launch_dir = bin_path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(|p| p.to_path_buf())
-            .or_else(|| {
-                std::fs::canonicalize(bin_path)
-                    .ok()
-                    .and_then(|c| c.parent().map(|p| p.to_path_buf()))
-            });
-        if let Some(dir) = launch_dir {
+        // PATH-only names need which→absolute path before dirname (canonicalize
+        // alone only searches the supervisor cwd).
+        let resolved = miner::resolve_executable_path(&binary);
+        if let Some(dir) = resolved.parent().filter(|p| !p.as_os_str().is_empty()) {
             command.current_dir(dir);
         }
         let alias = std::env::var("SHIP_WORKER_NAME").unwrap_or_else(|_| "ship-of-theseus".into());
@@ -826,7 +818,15 @@ fn reap_child(mut child: Child, state: Arc<Mutex<QubicMinerState>>) {
     }
     // Same process-group wait as miner::reap_child — leader exit must not
     // clear Running while workers in the setsid group still hold GPU/CPU.
-    miner::wait_process_group_exit(reaped_pid);
+    // No SIGKILL here; leave Running on timeout so Stop can kill orphans.
+    let group_gone = miner::wait_process_group_exit(reaped_pid);
+    if !group_gone {
+        eprintln!(
+            "[qubic] process group still alive after wait timeout \
+             (PID {reaped_pid}); leaving Running so Stop can kill orphans"
+        );
+        return;
+    }
     let mut s = state.lock().unwrap();
     if matches!(
         *s,
