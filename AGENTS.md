@@ -7,7 +7,6 @@ Not an SNN/training product. See `CONTEXT.md` for domain terms (envelope, stem, 
 
 | Path | Role |
 |------|------|
-| `crates/theseus-mining` | Supervisor + per-coin miner launchers |
 | `crates/mining-telemetry-core` | Shared stats, wire messages, JSONL schema |
 | `crates/telemetry-collector` | Polls nodes/sensors; writes JSONL |
 | `.devcontainer/` | Local VS Code / Cursor Dev Container |

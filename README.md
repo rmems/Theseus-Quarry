@@ -8,7 +8,6 @@ This is not a neuromorphic / SNN research library. JSONL metrics are plain minin
 
 | Crate | Role |
 |-------|------|
-| `theseus-mining` | Supervisor + per-coin miner launchers |
 | `mining-telemetry-core` | Shared stats / types for miner brands and coins |
 | `telemetry-collector` | Polls local nodes and sensors; writes JSONL |
 
@@ -64,10 +63,6 @@ Both **telemetry-collector** and **theseus-mining** write multi-stem JSONL under
 ```bash
 export TELEMETRY_DATA_DIR=./data/telemetry
 cargo run -p telemetry-collector
-# supervisor dual-write (default on):
-cargo run -p theseus-mining -- --algo dynex
-# disable supervisor disk writes:
-cargo run -p theseus-mining -- --algo dynex --telemetry-jsonl false
 ```
 
 See `CONTEXT.md` for domain terms (envelope, kind, stem, adapters).

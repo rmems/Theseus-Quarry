@@ -1,3 +1,4 @@
+pub mod gpu_scheduler;
 mod sources;
 mod writer;
 
