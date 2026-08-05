@@ -45,6 +45,10 @@ impl GpuDecision {
             GpuDecision::MiningThrottled { .. } => "throttled",
         }
     }
+
+    pub fn is_paused(&self) -> bool {
+        matches!(self, GpuDecision::MiningPaused(_))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,4 +1,5 @@
 mod gpu_scheduler;
+mod process_governor;
 mod sources;
 mod writer;
 
@@ -129,6 +130,9 @@ async fn main() -> anyhow::Result<()> {
         args.qubic_node_api_url.trim_end_matches('/')
     );
 
+    let mut governor = process_governor::ProcessGovernor::new();
+    let mut currently_paused = false;
+
     loop {
         let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
             sources::monero::poll(&client, &args.monero_node_rpc_url),
@@ -154,6 +158,17 @@ async fn main() -> anyhow::Result<()> {
                 warn!(temp_c, "GPU mining thermal throttle active");
             }
             gpu_scheduler::GpuDecision::MiningAllowed => {}
+        }
+
+        let should_pause = decision.is_paused();
+        if should_pause && !currently_paused {
+            warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
+            governor.suspend_miners();
+            currently_paused = true;
+        } else if !should_pause && currently_paused {
+            info!("Thermal levels returned to normal: Resuming miners...");
+            governor.resume_miners();
+            currently_paused = false;
         }
 
         if let Some(event) = gpu_event {

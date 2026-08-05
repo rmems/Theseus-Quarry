@@ -22,3 +22,4 @@ anyhow = { workspace = true }
 nvml-wrapper = { workspace = true }
 shellexpand = "3"
 rolling-file = { workspace = true }
+sysinfo = "0.30"
