@@ -25,6 +25,7 @@ pub struct GpuSnapshot {
 }
 
 /// Scheduler decision.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum GpuDecision {
     /// Mining may proceed.
@@ -44,10 +45,6 @@ impl GpuDecision {
             GpuDecision::MiningThrottled { .. } => "throttled",
         }
     }
-
-    pub fn is_paused(&self) -> bool {
-        matches!(self, GpuDecision::MiningPaused(_))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,8 +62,6 @@ pub struct GpuSchedulerConfig {
     pub vram_reserved_mb: u64,
     /// VRAM usage above which mining is paused (MB).
     pub vram_mining_ceiling_mb: u64,
-    /// VRAM usage below which mining can resume after pause (MB).
-    pub vram_clear_threshold_mb: u64,
     /// GPU temp above which mining is throttled (°C).
     pub thermal_throttle_c: f32,
     /// GPU temp above which mining is killed (emergency) (°C).
@@ -82,7 +77,6 @@ impl Default for GpuSchedulerConfig {
         Self {
             vram_reserved_mb: reserved_mb,
             vram_mining_ceiling_mb: total_mb.saturating_sub(reserved_mb),
-            vram_clear_threshold_mb: 2048,
             thermal_throttle_c: 80.0,
             thermal_emergency_c: 90.0,
             transition_cooldown: Duration::from_secs(10),
@@ -118,16 +112,19 @@ impl GpuSnapshotProvider for NvmlProvider {
 }
 
 /// Mock provider for tests.
+#[cfg(test)]
 pub struct MockProvider {
     snapshot: GpuSnapshot,
 }
 
+#[cfg(test)]
 impl MockProvider {
     pub fn new(snapshot: GpuSnapshot) -> Self {
         Self { snapshot }
     }
 }
 
+#[cfg(test)]
 impl GpuSnapshotProvider for MockProvider {
     fn snapshot(&self) -> Option<GpuSnapshot> {
         Some(self.snapshot.clone())
@@ -182,6 +179,7 @@ impl GpuScheduler {
     }
 
     /// Create a scheduler with a mock snapshot provider (for tests).
+    #[cfg(test)]
     pub fn new_mock(config: GpuSchedulerConfig, provider: Box<dyn GpuSnapshotProvider>) -> Self {
         Self {
             config,
@@ -238,14 +236,6 @@ impl GpuScheduler {
         (self.current_decision.clone(), event)
     }
 
-    pub fn snapshot(&self) -> Option<&GpuSnapshot> {
-        self.last_snapshot.as_ref()
-    }
-
-    pub fn current_decision(&self) -> &GpuDecision {
-        &self.current_decision
-    }
-
     fn make_event(&self, snapshot: &GpuSnapshot) -> GpuSchedulerEvent {
         GpuSchedulerEvent {
             decision: self.current_decision.label().to_string(),
@@ -281,7 +271,6 @@ mod tests {
     fn test_config() -> GpuSchedulerConfig {
         GpuSchedulerConfig {
             vram_mining_ceiling_mb: 12000,
-            vram_clear_threshold_mb: 2000,
             vram_reserved_mb: 4096,
             thermal_throttle_c: 80.0,
             thermal_emergency_c: 90.0,
