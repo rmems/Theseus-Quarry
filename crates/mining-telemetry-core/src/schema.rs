@@ -21,7 +21,7 @@ pub enum RecordKind {
     NodeHealth,
     HostHw,
     Status,
-    /// GPU resource scheduler events (collector/supervisor governance)
+    /// GPU resource scheduler events emitted by the telemetry collector.
     GpuSched,
     Rotation,
 }

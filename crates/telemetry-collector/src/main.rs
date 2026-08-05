@@ -24,7 +24,7 @@ struct Args {
     #[arg(long, env = "THERMAL_THROTTLE_C", default_value_t = 80.0)]
     thermal_throttle: f32,
 
-    /// GPU temperature (°C) at which mining is killed (emergency).
+    /// GPU temperature (°C) at which the scheduler reports an emergency pause.
     #[arg(long, env = "THERMAL_EMERGENCY_C", default_value_t = 90.0)]
     thermal_emergency: f32,
 }
@@ -52,6 +52,17 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
+    anyhow::ensure!(
+        args.thermal_throttle.is_finite() && args.thermal_emergency.is_finite(),
+        "Thermal thresholds must be finite numbers"
+    );
+    anyhow::ensure!(
+        args.thermal_throttle >= 0.0 && args.thermal_throttle < args.thermal_emergency,
+        "Require 0.0 <= thermal_throttle < thermal_emergency, got {} and {}",
+        args.thermal_throttle,
+        args.thermal_emergency
+    );
+
     let data_dir = shellexpand::tilde(&args.data_dir).into_owned();
     info!(
         data_dir = %data_dir,
