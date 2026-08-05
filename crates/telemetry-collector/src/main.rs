@@ -57,6 +57,8 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
     let mut w = writer::JsonlWriter::new(&data_dir);
     let rapl = sources::rapl::RaplState::new();
+    let mut gpu_sched =
+        gpu_scheduler::GpuScheduler::new(gpu_scheduler::GpuSchedulerConfig::default());
     let tick = Duration::from_secs(args.interval);
 
     loop {
@@ -67,6 +69,16 @@ async fn main() -> anyhow::Result<()> {
         flush_record(&mut w, sources::kaspa::poll(&client).await).await;
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;
+
+        let (_decision, gpu_event) = gpu_sched.poll();
+        if let Some(event) = gpu_event {
+            let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
+            if let Err(e) = w.write_envelope(&env).await {
+                warn!(source = "collector", error = %e, "gpu_sched write failed");
+            } else {
+                debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
+            }
+        }
 
         tokio::time::sleep(tick).await;
     }
