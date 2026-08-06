@@ -131,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let mut governor = process_governor::ProcessGovernor::new();
+    governor.resume_all_known_miners();
     let mut currently_paused = false;
 
     loop {
@@ -161,10 +162,12 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let should_pause = decision.is_paused();
-        if should_pause && !currently_paused {
-            warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
+        if should_pause {
+            if !currently_paused {
+                warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
+                currently_paused = true;
+            }
             governor.suspend_miners();
-            currently_paused = true;
         } else if !should_pause && currently_paused {
             info!("Thermal levels returned to normal: Resuming miners...");
             governor.resume_miners();
