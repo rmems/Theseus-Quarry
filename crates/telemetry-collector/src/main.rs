@@ -170,8 +170,11 @@ async fn main() -> anyhow::Result<()> {
             governor.suspend_miners();
         } else if !should_pause && currently_paused {
             info!("Thermal levels returned to normal: Resuming miners...");
-            governor.resume_miners();
-            currently_paused = false;
+            if governor.resume_miners() {
+                currently_paused = false;
+            } else {
+                warn!("Some miners failed to resume; will retry next tick.");
+            }
         }
 
         if let Some(event) = gpu_event {
