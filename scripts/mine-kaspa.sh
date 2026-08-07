@@ -45,6 +45,8 @@ preflight_check() {
     if [ ! -x "$bin" ]; then
         chmod +x "$bin"
     fi
+
+    check_port_free "$API_PORT" "Kaspa" "KASPA_API_PORT"
 }
 
 # ─── Start miner ─────────────────────────────────────────────────────────────
@@ -63,7 +65,7 @@ start_miner() {
     exec "$bin" \
         -a kaspa \
         -w "$wallet" \
-        -p "node+tcp://127.0.0.1:16110" \
+        -p "node+tcp://${pool#*://}" \
         --nc 1 \
         --http_port "$API_PORT" \
         >> "$LOG_FILE" 2>&1

@@ -27,6 +27,26 @@ struct Args {
     /// GPU temperature (°C) at which the scheduler reports an emergency pause.
     #[arg(long, env = "THERMAL_EMERGENCY_C", default_value_t = 90.0)]
     thermal_emergency: f32,
+
+    /// Kaspa Miner local API port
+    #[arg(long, env = "KASPA_API_PORT", default_value_t = 4014)]
+    kaspa_api_port: u16,
+
+    /// Dynex Node RPC URL
+    #[arg(long, env = "DYNEX_NODE_RPC_URL", default_value = "http://127.0.0.1:17336")]
+    dynex_node_rpc_url: String,
+
+    /// Monero Node RPC URL
+    #[arg(long, env = "MONERO_NODE_RPC_URL", default_value = "http://127.0.0.1:18081/json_rpc")]
+    monero_node_rpc_url: String,
+
+    /// Quai Node RPC URL
+    #[arg(long, env = "QUAI_NODE_RPC_URL", default_value = "http://127.0.0.1:9001")]
+    quai_node_rpc_url: String,
+
+    /// Qubic Node API URL
+    #[arg(long, env = "QUBIC_NODE_API_URL", default_value = "http://127.0.0.1:8099")]
+    qubic_node_api_url: String,
 }
 
 async fn flush_record(w: &mut writer::JsonlWriter, rec: sources::TelemetryRecord) {
@@ -83,12 +103,14 @@ async fn main() -> anyhow::Result<()> {
     });
     let tick = Duration::from_secs(args.interval);
 
+    let kaspa_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
+
     loop {
-        flush_record(&mut w, sources::monero::poll(&client).await).await;
-        flush_record(&mut w, sources::dynex::poll(&client).await).await;
-        flush_record(&mut w, sources::quai::poll(&client).await).await;
-        flush_record(&mut w, sources::qubic::poll(&client).await).await;
-        flush_record(&mut w, sources::kaspa::poll(&client).await).await;
+        flush_record(&mut w, sources::monero::poll(&client, &args.monero_node_rpc_url).await).await;
+        flush_record(&mut w, sources::dynex::poll(&client, &args.dynex_node_rpc_url).await).await;
+        flush_record(&mut w, sources::quai::poll(&client, &args.quai_node_rpc_url).await).await;
+        flush_record(&mut w, sources::qubic::poll(&client, &args.qubic_node_api_url).await).await;
+        flush_record(&mut w, sources::kaspa::poll(&client, &kaspa_endpoint).await).await;
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;
 

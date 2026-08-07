@@ -45,3 +45,17 @@ if [ -z "$_loaded" ]; then
 fi
 
 unset _theseus_config_dir _theseus_mining_env _theseus_binaries_env _theseus_repo_env _loaded
+
+# Helper function to check if a TCP port is bound before starting a miner.
+check_port_free() {
+    local port="$1"
+    local name="$2"
+    local var_name="$3"
+    
+    if timeout 1 bash -c "</dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+        echo "ERROR: Port $port is already in use."
+        echo "The $name API port conflicts with an existing process."
+        echo "Change the port via the $var_name variable or stop the conflicting process."
+        exit 1
+    fi
+}

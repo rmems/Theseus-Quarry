@@ -1,18 +1,16 @@
 use super::TelemetryRecord;
 use mining_telemetry_core::{NodeHealthInput, node_health};
 
-const QUBIC_TICK_URL: &str = "http://127.0.0.1:8099/tick-info";
-
-pub async fn poll(client: &reqwest::Client) -> TelemetryRecord {
+pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
     TelemetryRecord {
         source: "qubic",
-        envelope: try_poll(client).await,
+        envelope: try_poll(client, endpoint).await,
     }
 }
 
-async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+async fn try_poll(client: &reqwest::Client, endpoint: &str) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let resp: serde_json::Value = client
-        .get(QUBIC_TICK_URL)
+        .get(endpoint)
         .send()
         .await
         .ok()?

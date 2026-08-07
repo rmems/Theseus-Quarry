@@ -42,6 +42,8 @@ preflight_check() {
     if [ ! -x "$bin" ]; then
         chmod +x "$bin"
     fi
+
+    check_port_free "$API_PORT" "Dynex" "DYNEX_API_PORT"
 }
 
 resolve_dynex_bin() {

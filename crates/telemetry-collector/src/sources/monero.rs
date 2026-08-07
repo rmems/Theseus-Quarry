@@ -2,22 +2,20 @@ use super::TelemetryRecord;
 use mining_telemetry_core::{NodeHealthInput, node_health};
 use serde_json::json;
 
-const MONERO_RPC: &str = "http://127.0.0.1:18081/json_rpc";
-
-pub async fn poll(client: &reqwest::Client) -> TelemetryRecord {
-    let envelope = try_poll(client).await;
+pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
+    let envelope = try_poll(client, endpoint).await;
     TelemetryRecord {
         source: "monero",
         envelope,
     }
 }
 
-async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+async fn try_poll(client: &reqwest::Client, endpoint: &str) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let mining_body = json!({"jsonrpc": "2.0", "id": "0", "method": "mining_status"});
     let info_body = json!({"jsonrpc": "2.0", "id": "0", "method": "get_info"});
 
     let mining_resp: serde_json::Value = client
-        .post(MONERO_RPC)
+        .post(endpoint)
         .json(&mining_body)
         .send()
         .await
@@ -26,7 +24,7 @@ async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::Tel
         .await
         .ok()?;
     let info_resp: serde_json::Value = client
-        .post(MONERO_RPC)
+        .post(endpoint)
         .json(&info_body)
         .send()
         .await
