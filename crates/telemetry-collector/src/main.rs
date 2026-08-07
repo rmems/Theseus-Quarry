@@ -120,8 +120,14 @@ async fn main() -> anyhow::Result<()> {
     let tick = Duration::from_secs(args.interval);
 
     let kaspa_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
-    let dynex_endpoint = format!("{}/getheight", args.dynex_node_rpc_url.trim_end_matches('/'));
-    let qubic_endpoint = format!("{}/tick-info", args.qubic_node_api_url.trim_end_matches('/'));
+    let dynex_endpoint = format!(
+        "{}/getheight",
+        args.dynex_node_rpc_url.trim_end_matches('/')
+    );
+    let qubic_endpoint = format!(
+        "{}/tick-info",
+        args.qubic_node_api_url.trim_end_matches('/')
+    );
 
     loop {
         let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
