@@ -8,15 +8,11 @@ pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
     }
 }
 
-async fn try_poll(client: &reqwest::Client, endpoint: &str) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-    let resp: serde_json::Value = client
-        .get(endpoint)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
+async fn try_poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+    let resp: serde_json::Value = client.get(endpoint).send().await.ok()?.json().await.ok()?;
     let mut hashrate_mh = None;
     for key in &["hashrate", "total_hashrate", "hashrate_mh", "hashrate_mhs"] {
         if let Some(val) = resp.get(key) {

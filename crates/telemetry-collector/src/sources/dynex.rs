@@ -8,15 +8,11 @@ pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
     }
 }
 
-async fn try_poll(client: &reqwest::Client, endpoint: &str) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-    let resp: serde_json::Value = client
-        .get(endpoint)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
+async fn try_poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+    let resp: serde_json::Value = client.get(endpoint).send().await.ok()?.json().await.ok()?;
     let height = resp.get("height").and_then(|v| v.as_u64());
     Some(node_health(
         "collector",

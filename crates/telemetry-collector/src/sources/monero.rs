@@ -10,7 +10,10 @@ pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
     }
 }
 
-async fn try_poll(client: &reqwest::Client, endpoint: &str) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+async fn try_poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let mining_body = json!({"jsonrpc": "2.0", "id": "0", "method": "mining_status"});
     let info_body = json!({"jsonrpc": "2.0", "id": "0", "method": "get_info"});
 
