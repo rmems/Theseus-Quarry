@@ -35,8 +35,7 @@ impl JsonlWriter {
                 path_pattern,
                 RollingConditionBasic::new().daily(),
                 6,
-            )
-            .map_err(std::io::Error::other)?;
+            )?;
 
             self.handles
                 .insert(env.stem.clone(), std::io::BufWriter::new(appender));
