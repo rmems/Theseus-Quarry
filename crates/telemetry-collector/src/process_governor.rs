@@ -12,6 +12,13 @@ const MINER_PROCESS_NAMES: &[&str] = &[
     "hellminer",
 ];
 
+fn is_miner_process(name: &str) -> bool {
+    let lower_name = name.to_lowercase();
+    MINER_PROCESS_NAMES
+        .iter()
+        .any(|&miner| lower_name.contains(&miner.to_lowercase()))
+}
+
 pub struct ProcessGovernor {
     sys: System,
     paused_processes: HashMap<Pid, u64>,
@@ -29,7 +36,7 @@ impl ProcessGovernor {
     pub fn resume_all_known_miners(&mut self) {
         self.sys.refresh_processes();
         for process in self.sys.processes().values() {
-            if MINER_PROCESS_NAMES.contains(&process.name()) {
+            if is_miner_process(process.name()) {
                 if process.kill_with(Signal::Continue).unwrap_or(false) {
                     info!(
                         pid = process.pid().as_u32(),
@@ -51,7 +58,7 @@ impl ProcessGovernor {
     pub fn suspend_miners(&mut self) {
         self.sys.refresh_processes();
         for process in self.sys.processes().values() {
-            if MINER_PROCESS_NAMES.contains(&process.name()) {
+            if is_miner_process(process.name()) {
                 let pid = process.pid();
                 let start_time = process.start_time();
 

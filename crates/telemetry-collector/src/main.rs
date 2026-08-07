@@ -131,8 +131,18 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let mut governor = process_governor::ProcessGovernor::new();
-    governor.resume_all_known_miners();
-    let mut currently_paused = false;
+
+    // Initial GPU safety check before startup recovery
+    let (decision, _event) = gpu_sched.poll();
+    let mut currently_paused = decision.is_paused();
+
+    if currently_paused {
+        warn!("Initial state is thermal emergency / VRAM pressure. Suspending known miners...");
+        governor.suspend_miners();
+    } else {
+        info!("Initial state is safe. Resuming all known miners to clear stale SIGSTOPs...");
+        governor.resume_all_known_miners();
+    }
 
     loop {
         let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
