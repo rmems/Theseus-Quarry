@@ -28,7 +28,7 @@ impl JsonlWriter {
             std::fs::create_dir_all(&self.data_dir)?;
             // Setup the rolling file appender: {stem}.jsonl, rotating daily, keeping 7 days.
             let path_pattern = self.data_dir.join(format!("{}.jsonl", env.stem));
-            
+
             // BasicRollingFileAppender will rotate files when the condition is met.
             // The active file is always {stem}.jsonl
             let appender = BasicRollingFileAppender::new(
