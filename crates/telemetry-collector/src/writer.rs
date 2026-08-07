@@ -27,14 +27,14 @@ impl JsonlWriter {
         if !self.handles.contains_key(&env.stem) {
             std::fs::create_dir_all(&self.data_dir)?;
             // Setup the rolling file appender: {stem}.jsonl, rotating daily, keeping 7 days.
-            let path_pattern = self.data_dir.join(format!("{}.jsonl.{{}}", env.stem));
-
-            // BasicRollingFileAppender inserts date suffix at `{}` placeholder.
-            // Pattern: {stem}.jsonl.{} creates files like hwmon_telemetry.jsonl.2026-08-07
+            let path_pattern = self.data_dir.join(format!("{}.jsonl", env.stem));
+            
+            // BasicRollingFileAppender will rotate files when the condition is met.
+            // The active file is always {stem}.jsonl
             let appender = BasicRollingFileAppender::new(
                 path_pattern.to_string_lossy().into_owned(),
                 RollingConditionBasic::new().daily(),
-                7,
+                6,
             )
             .map_err(std::io::Error::other)?;
 
@@ -69,16 +69,7 @@ mod tests {
         w.write_envelope(&env).await.unwrap();
         drop(w);
 
-        // rolling-file with pattern `{}` might output to hwmon_telemetry.jsonl.
-        // Let's check the directory contents to find the file.
-        let mut found_text = String::new();
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let entry = entry.unwrap();
-            if entry.path().is_file() {
-                found_text = std::fs::read_to_string(entry.path()).unwrap();
-                break;
-            }
-        }
+        let found_text = std::fs::read_to_string(dir.join("hwmon_telemetry.jsonl")).unwrap();
 
         assert!(found_text.contains(&format!("\"schema_version\":{SCHEMA_VERSION}")));
         assert!(found_text.contains("host_hw") || found_text.contains("\"kind\":\"host_hw\""));

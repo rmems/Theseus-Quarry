@@ -21,4 +21,4 @@ clap = { workspace = true }
 anyhow = { workspace = true }
 nvml-wrapper = { workspace = true }
 shellexpand = "3"
-rolling-file = "0.2.0"
+rolling-file = { workspace = true }
