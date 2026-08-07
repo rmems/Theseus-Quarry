@@ -28,33 +28,28 @@ impl JsonlWriter {
             std::fs::create_dir_all(&self.data_dir)?;
             // Setup the rolling file appender: {stem}.jsonl, rotating daily, keeping 7 days.
             let path_pattern = self.data_dir.join(format!("{}.jsonl.{{}}", env.stem));
-
-            // BasicRollingFileAppender uses `{}` in the filename pattern to insert the date suffix.
-            // If the base pattern should be without date for the active file, it actually
-            // handles `{}` automatically for old files if we configure it right, but BasicRollingFileAppender
-            // requires `{}` in the pattern. Wait, BasicRollingFileAppender docs say the active file
-            // has no suffix if we don't put `{}` at the end, but actually let's just use `{}` at the end.
-            // Let's use `{stem}.jsonl.{}`. Wait, let's just convert it to string.
+            
+            // BasicRollingFileAppender inserts date suffix at `{}` placeholder.
+            // Pattern: {stem}.jsonl.{} creates files like hwmon_telemetry.jsonl.2026-08-07
             let appender = BasicRollingFileAppender::new(
                 path_pattern.to_string_lossy().into_owned(),
                 RollingConditionBasic::new().daily(),
                 7,
             )
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
             self.handles
                 .insert(env.stem.clone(), std::io::BufWriter::new(appender));
         }
-
+        
         let handle = self.handles.get_mut(&env.stem).unwrap();
 
         let mut line = env
             .to_json_line()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         line.push('\n');
-
+        
         handle.write_all(line.as_bytes())?;
-        handle.flush()?;
         Ok(())
     }
 }
