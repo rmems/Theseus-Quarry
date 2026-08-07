@@ -43,7 +43,7 @@ preflight_check() {
         chmod +x "$bin"
     fi
 
-    check_port_free "$API_PORT" "Dynex" "DYNEX_API_PORT"
+    check_port_free "${DYNEX_API_PORT:-$API_PORT}" "Dynex" "DYNEX_API_PORT"
 }
 
 resolve_dynex_bin() {

@@ -70,7 +70,7 @@ preflight_check() {
         export MONERO_BIN="$bin"
     fi
 
-    check_port_free "$API_PORT" "Monero" "MONERO_API_PORT"
+    check_port_free "${MONERO_API_PORT:-$API_PORT}" "Monero" "MONERO_API_PORT"
 }
 
 # ─── Start miner ─────────────────────────────────────────────────────────────

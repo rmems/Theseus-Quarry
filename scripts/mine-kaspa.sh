@@ -46,7 +46,7 @@ preflight_check() {
         chmod +x "$bin"
     fi
 
-    check_port_free "$API_PORT" "Kaspa" "KASPA_API_PORT"
+    check_port_free "${KASPA_API_PORT:-$API_PORT}" "Kaspa" "KASPA_API_PORT"
 }
 
 # ─── Start miner ─────────────────────────────────────────────────────────────
