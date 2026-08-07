@@ -1,24 +1,18 @@
 use super::TelemetryRecord;
 use mining_telemetry_core::{NodeHealthInput, node_health};
 
-const DYNEX_HEIGHT_URL: &str = "http://127.0.0.1:17336/getheight";
-
-pub async fn poll(client: &reqwest::Client) -> TelemetryRecord {
+pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
     TelemetryRecord {
         source: "dynex",
-        envelope: try_poll(client).await,
+        envelope: try_poll(client, endpoint).await,
     }
 }
 
-async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-    let resp: serde_json::Value = client
-        .get(DYNEX_HEIGHT_URL)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
+async fn try_poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+    let resp: serde_json::Value = client.get(endpoint).send().await.ok()?.json().await.ok()?;
     let height = resp.get("height").and_then(|v| v.as_u64());
     Some(node_health(
         "collector",

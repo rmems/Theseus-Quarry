@@ -1,24 +1,18 @@
 use super::TelemetryRecord;
 use mining_telemetry_core::{NodeHealthInput, node_health};
 
-const KASPA_BZ_API: &str = "http://127.0.0.1:4014/";
-
-pub async fn poll(client: &reqwest::Client) -> TelemetryRecord {
+pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
     TelemetryRecord {
         source: "kaspa",
-        envelope: try_poll(client).await,
+        envelope: try_poll(client, endpoint).await,
     }
 }
 
-async fn try_poll(client: &reqwest::Client) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-    let resp: serde_json::Value = client
-        .get(KASPA_BZ_API)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
+async fn try_poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Option<mining_telemetry_core::TelemetryEnvelope> {
+    let resp: serde_json::Value = client.get(endpoint).send().await.ok()?.json().await.ok()?;
     let mut hashrate_mh = None;
     for key in &["hashrate", "total_hashrate", "hashrate_mh", "hashrate_mhs"] {
         if let Some(val) = resp.get(key) {

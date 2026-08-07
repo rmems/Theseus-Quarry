@@ -27,6 +27,42 @@ struct Args {
     /// GPU temperature (°C) at which the scheduler reports an emergency pause.
     #[arg(long, env = "THERMAL_EMERGENCY_C", default_value_t = 90.0)]
     thermal_emergency: f32,
+
+    /// Kaspa Miner local API port
+    #[arg(long, env = "KASPA_API_PORT", default_value_t = 4014)]
+    kaspa_api_port: u16,
+
+    /// Dynex Node RPC URL
+    #[arg(
+        long,
+        env = "DYNEX_NODE_RPC_URL",
+        default_value = "http://127.0.0.1:17336"
+    )]
+    dynex_node_rpc_url: String,
+
+    /// Monero Node RPC URL
+    #[arg(
+        long,
+        env = "MONERO_NODE_RPC_URL",
+        default_value = "http://127.0.0.1:18081/json_rpc"
+    )]
+    monero_node_rpc_url: String,
+
+    /// Quai Node RPC URL
+    #[arg(
+        long,
+        env = "QUAI_NODE_RPC_URL",
+        default_value = "http://127.0.0.1:9001"
+    )]
+    quai_node_rpc_url: String,
+
+    /// Qubic Node API URL
+    #[arg(
+        long,
+        env = "QUBIC_NODE_API_URL",
+        default_value = "http://127.0.0.1:8099"
+    )]
+    qubic_node_api_url: String,
 }
 
 async fn flush_record(w: &mut writer::JsonlWriter, rec: sources::TelemetryRecord) {
@@ -83,12 +119,29 @@ async fn main() -> anyhow::Result<()> {
     });
     let tick = Duration::from_secs(args.interval);
 
+    let kaspa_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
+    let dynex_endpoint = format!(
+        "{}/getheight",
+        args.dynex_node_rpc_url.trim_end_matches('/')
+    );
+    let qubic_endpoint = format!(
+        "{}/tick-info",
+        args.qubic_node_api_url.trim_end_matches('/')
+    );
+
     loop {
-        flush_record(&mut w, sources::monero::poll(&client).await).await;
-        flush_record(&mut w, sources::dynex::poll(&client).await).await;
-        flush_record(&mut w, sources::quai::poll(&client).await).await;
-        flush_record(&mut w, sources::qubic::poll(&client).await).await;
-        flush_record(&mut w, sources::kaspa::poll(&client).await).await;
+        let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
+            sources::monero::poll(&client, &args.monero_node_rpc_url),
+            sources::dynex::poll(&client, &dynex_endpoint),
+            sources::quai::poll(&client, &args.quai_node_rpc_url),
+            sources::qubic::poll(&client, &qubic_endpoint),
+            sources::kaspa::poll(&client, &kaspa_endpoint),
+        );
+        flush_record(&mut w, monero_rec).await;
+        flush_record(&mut w, dynex_rec).await;
+        flush_record(&mut w, quai_rec).await;
+        flush_record(&mut w, qubic_rec).await;
+        flush_record(&mut w, kaspa_rec).await;
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;
 

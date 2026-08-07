@@ -46,10 +46,10 @@ preflight_check() {
     fi
 
     # Check node API
-    local api_url="${QUBIC_API_URL:-http://127.0.0.1:8099}"
+    local api_url="${QUBIC_NODE_API_URL:-${QUBIC_API_URL:-http://127.0.0.1:8099}}"
     if ! curl -s --max-time 5 "$api_url/tick-info" >/dev/null 2>&1; then
         echo "WARNING: Qubic node API not responding at $api_url"
-        echo "Start node first or set QUBIC_API_URL in .env"
+        echo "Start node first or set QUBIC_NODE_API_URL in .env"
     fi
 }
 

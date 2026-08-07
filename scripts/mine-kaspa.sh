@@ -45,13 +45,15 @@ preflight_check() {
     if [ ! -x "$bin" ]; then
         chmod +x "$bin"
     fi
+
+    check_port_free "${KASPA_API_PORT:-$API_PORT}" "Kaspa" "KASPA_API_PORT"
 }
 
 # ─── Start miner ─────────────────────────────────────────────────────────────
 start_miner() {
     local bin="${KASPA_BIN:-$REPO_ROOT/$BINARY_DEFAULT}"
     local wallet="${KASPA_WALLET:-${KASPA_WALLET_ADDRESS:-}}"
-    local pool="${KASPA_POOL:-stratum+tcp://127.0.0.1:16110}"
+    local pool="${KASPA_POOL:-node+tcp://127.0.0.1:16110}"
 
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting ${COIN} miner" | tee -a "$LOG_FILE"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Wallet: ${wallet:0:24}..." | tee -a "$LOG_FILE"
@@ -63,7 +65,7 @@ start_miner() {
     exec "$bin" \
         -a kaspa \
         -w "$wallet" \
-        -p "node+tcp://127.0.0.1:16110" \
+        -p "$pool" \
         --nc 1 \
         --http_port "$API_PORT" \
         >> "$LOG_FILE" 2>&1
