@@ -32,7 +32,7 @@ impl JsonlWriter {
             // BasicRollingFileAppender will rotate files when the condition is met.
             // The active file is always {stem}.jsonl
             let appender = BasicRollingFileAppender::new(
-                path_pattern.to_string_lossy().into_owned(),
+                path_pattern,
                 RollingConditionBasic::new().daily(),
                 6,
             )
