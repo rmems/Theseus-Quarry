@@ -28,7 +28,7 @@ impl JsonlWriter {
             std::fs::create_dir_all(&self.data_dir)?;
             // Setup the rolling file appender: {stem}.jsonl, rotating daily, keeping 7 days.
             let path_pattern = self.data_dir.join(format!("{}.jsonl.{{}}", env.stem));
-            
+
             // BasicRollingFileAppender inserts date suffix at `{}` placeholder.
             // Pattern: {stem}.jsonl.{} creates files like hwmon_telemetry.jsonl.2026-08-07
             let appender = BasicRollingFileAppender::new(
@@ -41,14 +41,14 @@ impl JsonlWriter {
             self.handles
                 .insert(env.stem.clone(), std::io::BufWriter::new(appender));
         }
-        
+
         let handle = self.handles.get_mut(&env.stem).unwrap();
 
         let mut line = env
             .to_json_line()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         line.push('\n');
-        
+
         handle.write_all(line.as_bytes())?;
         Ok(())
     }
