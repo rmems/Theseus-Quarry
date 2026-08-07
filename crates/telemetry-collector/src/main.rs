@@ -120,6 +120,8 @@ async fn main() -> anyhow::Result<()> {
     let tick = Duration::from_secs(args.interval);
 
     let kaspa_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
+    let dynex_endpoint = format!("{}/getheight", args.dynex_node_rpc_url.trim_end_matches('/'));
+    let qubic_endpoint = format!("{}/tick-info", args.qubic_node_api_url.trim_end_matches('/'));
 
     loop {
         flush_record(
@@ -129,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
         .await;
         flush_record(
             &mut w,
-            sources::dynex::poll(&client, &args.dynex_node_rpc_url).await,
+            sources::dynex::poll(&client, &dynex_endpoint).await,
         )
         .await;
         flush_record(
@@ -139,7 +141,7 @@ async fn main() -> anyhow::Result<()> {
         .await;
         flush_record(
             &mut w,
-            sources::qubic::poll(&client, &args.qubic_node_api_url).await,
+            sources::qubic::poll(&client, &qubic_endpoint).await,
         )
         .await;
         flush_record(&mut w, sources::kaspa::poll(&client, &kaspa_endpoint).await).await;
