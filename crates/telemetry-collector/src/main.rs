@@ -124,27 +124,18 @@ async fn main() -> anyhow::Result<()> {
     let qubic_endpoint = format!("{}/tick-info", args.qubic_node_api_url.trim_end_matches('/'));
 
     loop {
-        flush_record(
-            &mut w,
-            sources::monero::poll(&client, &args.monero_node_rpc_url).await,
-        )
-        .await;
-        flush_record(
-            &mut w,
-            sources::dynex::poll(&client, &dynex_endpoint).await,
-        )
-        .await;
-        flush_record(
-            &mut w,
-            sources::quai::poll(&client, &args.quai_node_rpc_url).await,
-        )
-        .await;
-        flush_record(
-            &mut w,
-            sources::qubic::poll(&client, &qubic_endpoint).await,
-        )
-        .await;
-        flush_record(&mut w, sources::kaspa::poll(&client, &kaspa_endpoint).await).await;
+        let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
+            sources::monero::poll(&client, &args.monero_node_rpc_url),
+            sources::dynex::poll(&client, &dynex_endpoint),
+            sources::quai::poll(&client, &args.quai_node_rpc_url),
+            sources::qubic::poll(&client, &qubic_endpoint),
+            sources::kaspa::poll(&client, &kaspa_endpoint),
+        );
+        flush_record(&mut w, monero_rec).await;
+        flush_record(&mut w, dynex_rec).await;
+        flush_record(&mut w, quai_rec).await;
+        flush_record(&mut w, qubic_rec).await;
+        flush_record(&mut w, kaspa_rec).await;
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;
 
