@@ -22,6 +22,7 @@ fn is_miner_process(name: &str) -> bool {
 pub struct ProcessGovernor {
     sys: System,
     paused_processes: HashMap<Pid, u64>,
+    pub is_emergency: bool,
 }
 
 impl ProcessGovernor {
@@ -29,6 +30,7 @@ impl ProcessGovernor {
         Self {
             sys: System::new_all(),
             paused_processes: HashMap::new(),
+            is_emergency: false,
         }
     }
 
@@ -131,8 +133,12 @@ impl ProcessGovernor {
 impl Drop for ProcessGovernor {
     fn drop(&mut self) {
         if !self.paused_processes.is_empty() {
-            info!("Shutting down: resuming tracked miner processes...");
-            self.resume_miners();
+            if self.is_emergency {
+                warn!("Shutting down during active emergency: preserving SIGSTOP on miners.");
+            } else {
+                info!("Shutting down: resuming tracked miner processes...");
+                self.resume_miners();
+            }
         }
     }
 }

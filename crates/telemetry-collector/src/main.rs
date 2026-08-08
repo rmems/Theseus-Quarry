@@ -138,6 +138,7 @@ async fn main() -> anyhow::Result<()> {
 
     if currently_paused {
         warn!("Initial state is thermal emergency / VRAM pressure. Suspending known miners...");
+        governor.is_emergency = true;
         governor.suspend_miners();
     } else {
         info!("Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs...");
@@ -158,21 +159,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     loop {
-        let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
-            sources::monero::poll(&client, &args.monero_node_rpc_url),
-            sources::dynex::poll(&client, &dynex_endpoint),
-            sources::quai::poll(&client, &args.quai_node_rpc_url),
-            sources::qubic::poll(&client, &qubic_endpoint),
-            sources::kaspa::poll(&client, &kaspa_endpoint),
-        );
-        flush_record(&mut w, monero_rec).await;
-        flush_record(&mut w, dynex_rec).await;
-        flush_record(&mut w, quai_rec).await;
-        flush_record(&mut w, qubic_rec).await;
-        flush_record(&mut w, kaspa_rec).await;
-        flush_record(&mut w, sources::hwmon::poll()).await;
-        flush_record(&mut w, rapl.poll()).await;
-
         let (decision, gpu_event) = gpu_sched.poll();
         match decision {
             gpu_scheduler::GpuDecision::MiningPaused(ref reason) => {
@@ -185,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let should_pause = decision.is_paused();
+        governor.is_emergency = should_pause;
         if should_pause {
             if !currently_paused {
                 warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
@@ -208,6 +195,21 @@ async fn main() -> anyhow::Result<()> {
                 debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
             }
         }
+
+        let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
+            sources::monero::poll(&client, &args.monero_node_rpc_url),
+            sources::dynex::poll(&client, &dynex_endpoint),
+            sources::quai::poll(&client, &args.quai_node_rpc_url),
+            sources::qubic::poll(&client, &qubic_endpoint),
+            sources::kaspa::poll(&client, &kaspa_endpoint),
+        );
+        flush_record(&mut w, monero_rec).await;
+        flush_record(&mut w, dynex_rec).await;
+        flush_record(&mut w, quai_rec).await;
+        flush_record(&mut w, qubic_rec).await;
+        flush_record(&mut w, kaspa_rec).await;
+        flush_record(&mut w, sources::hwmon::poll()).await;
+        flush_record(&mut w, rapl.poll()).await;
 
         #[cfg(not(unix))]
         let sigterm_fut = std::future::pending::<()>();
