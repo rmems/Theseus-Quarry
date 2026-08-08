@@ -133,15 +133,24 @@ async fn main() -> anyhow::Result<()> {
     let mut governor = process_governor::ProcessGovernor::new();
 
     // Initial GPU safety check before startup recovery
-    let (decision, _event) = gpu_sched.poll();
+    let (decision, event) = gpu_sched.poll();
     let mut currently_paused = decision.is_paused();
 
     if currently_paused {
         warn!("Initial state is thermal emergency / VRAM pressure. Suspending known miners...");
         governor.suspend_miners();
     } else {
-        info!("Initial state is safe. Resuming all known miners to clear stale SIGSTOPs...");
+        info!("Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs...");
         governor.resume_all_known_miners();
+    }
+
+    if let Some(event) = event {
+        let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
+        if let Err(e) = w.write_envelope(&env).await {
+            warn!(source = "collector", error = %e, "gpu_sched write failed");
+        } else {
+            debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
+        }
     }
 
     loop {

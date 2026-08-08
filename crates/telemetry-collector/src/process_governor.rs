@@ -127,3 +127,12 @@ impl ProcessGovernor {
         all_success && self.paused_processes.is_empty()
     }
 }
+
+impl Drop for ProcessGovernor {
+    fn drop(&mut self) {
+        if !self.paused_processes.is_empty() {
+            info!("Shutting down: resuming tracked miner processes...");
+            self.resume_miners();
+        }
+    }
+}
