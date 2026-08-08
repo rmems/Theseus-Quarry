@@ -144,6 +144,10 @@ async fn main() -> anyhow::Result<()> {
         governor.resume_all_known_miners();
     }
 
+    #[cfg(unix)]
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("Failed to create SIGTERM listener");
+
     if let Some(event) = event {
         let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
         if let Err(e) = w.write_envelope(&env).await {
@@ -205,6 +209,23 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        tokio::time::sleep(tick).await;
+        #[cfg(not(unix))]
+        let sigterm_fut = std::future::pending::<()>();
+        
+        #[cfg(unix)]
+        let sigterm_fut = sigterm.recv();
+
+        tokio::select! {
+            _ = tokio::time::sleep(tick) => {}
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received SIGINT, shutting down...");
+                break;
+            }
+            _ = sigterm_fut => {
+                info!("Received SIGTERM, shutting down...");
+                break;
+            }
+        }
     }
+    Ok(())
 }
