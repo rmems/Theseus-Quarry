@@ -189,11 +189,15 @@ impl GpuScheduler {
     /// Create a scheduler with a mock snapshot provider (for tests).
     #[cfg(test)]
     pub fn new_mock(config: GpuSchedulerConfig, provider: Box<dyn GpuSnapshotProvider>) -> Self {
+        let last_transition = Instant::now()
+            .checked_sub(config.transition_cooldown)
+            .unwrap_or_else(Instant::now);
+
         Self {
             config,
             provider,
             current_decision: GpuDecision::MiningAllowed,
-            last_transition: Instant::now(),
+            last_transition,
             last_heartbeat: Instant::now(),
             transition_count: 0,
             last_snapshot: None,
