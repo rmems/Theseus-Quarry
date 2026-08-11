@@ -37,7 +37,7 @@ struct Args {
     #[arg(long, env = "DYNEX_API_PORT", default_value_t = 3010)]
     dynex_api_port: u16,
 
-    /// XMRig / SRBMiner local HTTP API port (MinerPerf for Monero).
+    /// XMRig local HTTP API port (MinerPerf for Monero). SRBMiner not parsed yet.
     #[arg(long, env = "MONERO_API_PORT", default_value_t = 4015)]
     monero_api_port: u16,
 

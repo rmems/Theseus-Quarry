@@ -11,8 +11,8 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 | **Envelope** | Common JSONL keys on every line: `schema_version`, `timestamp`, `source`, `kind`, optional `host` / `run_id`. |
 | **Payload** | Kind-specific body: miner performance, node health, host hardware, or control events. |
 | **Kind** | Record class: `miner_perf`, `node_health`, `host_hw`, `status`, `gpu_sched`, `rotation`. |
-| **Source** | Producer identity: typically `collector`. |
-| **Stem** | JSONL file basename without extension (`monero_telemetry`, `hwmon_telemetry`, …). Multi-stem layout: one file per stem under `TELEMETRY_DATA_DIR`. |
+| **Source** | Producer identity for JSONL records: `collector`. |
+| **Stem** | JSONL file basename without extension. Node health uses `{coin}_telemetry`; miner HTTP MinerPerf uses `{coin}_miner_telemetry`; host sensors use stems like `hwmon_telemetry`. Multi-stem layout under `TELEMETRY_DATA_DIR`. |
 | **Adapter (collector)** | `telemetry-collector` path: miner HTTP APIs, node RPC, and sysfs poll → envelope → JSONL. |
 | **Miner performance** | Hashrate, shares, miner uptime — from miner process or miner HTTP API. |
 | **Node health** | Chain height, tick, peer/sync — from full-node RPC. Distinct stem/kind from miner performance. |

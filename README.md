@@ -57,10 +57,14 @@ versioned envelope:
   "timestamp": "…",
   "source": "collector",
   "kind": "miner_perf|node_health|host_hw|gpu_sched|rotation",
-  "stem": "dynex_telemetry",
+  "stem": "dynex_miner_telemetry",
   "payload": { "type": "…", "…": "…" }
 }
 ```
+
+MinerPerf stems are `{coin}_miner_telemetry` so they do not share files with
+node `NodeHealth` stems (`{coin}_telemetry`).
+
 
 ```bash
 export TELEMETRY_DATA_DIR=./data/telemetry
