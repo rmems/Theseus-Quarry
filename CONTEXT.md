@@ -11,11 +11,9 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 | **Envelope** | Common JSONL keys on every line: `schema_version`, `timestamp`, `source`, `kind`, optional `host` / `run_id`. |
 | **Payload** | Kind-specific body: miner performance, node health, host hardware, or control events. |
 | **Kind** | Record class: `miner_perf`, `node_health`, `host_hw`, `status`, `gpu_sched`, `rotation`. |
-| **Source** | Producer identity: e.g. `supervisor`, `collector`, or a finer id. |
+| **Source** | Producer identity: typically `collector`. |
 | **Stem** | JSONL file basename without extension (`monero_telemetry`, `hwmon_telemetry`, …). Multi-stem layout: one file per stem under `TELEMETRY_DATA_DIR`. |
-| **Adapter (supervisor)** | `theseus-mining` path: process stdout / `WireMsg` → envelope → JSONL (+ logs). |
-| **Adapter (collector)** | `telemetry-collector` path: HTTP/sysfs poll → envelope → JSONL. |
-| **WireMsg** | In-process bus message (`MiningTelem`, `Status`, scheduler/rotation events). Not the disk format; may be projected into envelopes. |
+| **Adapter (collector)** | `telemetry-collector` path: miner HTTP APIs, node RPC, and sysfs poll → envelope → JSONL. |
 | **Miner performance** | Hashrate, shares, miner uptime — from miner process or miner HTTP API. |
 | **Node health** | Chain height, tick, peer/sync — from full-node RPC. Distinct stem/kind from miner performance. |
 | **Host hardware** | RAPL, hwmon, NVML-class signals. |
@@ -26,11 +24,11 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 ### Telemetry Schema deepen (2026-07-28)
 
 - **Layout:** multi-stem JSONL (not single `events.jsonl`).
-- **Writers:** dual — supervisor and collector both write envelopes under `TELEMETRY_DATA_DIR`.
+- **Writers:** single writer — `telemetry-collector` under `TELEMETRY_DATA_DIR`.
 - **Compat:** break free at `schema_version = 1` (honest names; no dual-compat with old free-form lines).
 - **Owner crate:** `mining-telemetry-core`; collector must depend on it.
-- **Implemented (2026-07-28):** `crates/mining-telemetry-core/src/schema.rs`; collector + supervisor dual-write; status lines stay log-only (not JSONL).
-- **Out of scope / follow-ons:** unit bug fix in `extract_hashrate`, miner-vs-node port alignment, file rotation, monero/verus wiring into `UnifiedMining`.
+- **Implemented (2026-07-28):** `crates/mining-telemetry-core/src/schema.rs`; collector dual-path node + host hardware; status lines stay log-only (not JSONL).
+- **Implemented (2026-08-11):** MinerPerf from miner local HTTP APIs (BzMiner / XMRig / OneZeroMiner); removed supervisor stdout `extract_hashrate` path. Node RPC sources remain for `NodeHealth`.
 
 ## Non-goals
 

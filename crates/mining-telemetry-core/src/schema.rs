@@ -1,14 +1,11 @@
 //! Telemetry Schema module — durable JSONL envelope + payloads (schema_version = 1).
 //!
-//! Both supervisor and collector are adapters that serialize these records.
+//! The telemetry-collector is the primary adapter that serializes these records.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    CoinType, DynexStats, GpuSchedulerEvent, KaspaStats, MiningStats, MiningTelemetry, MoneroStats,
-    QuaiStats, QubicStats, RotationEvent, VerusStats, WireMsg,
-};
+use crate::{GpuSchedulerEvent, RotationEvent};
 
 /// Current on-disk schema. Break-free: no dual-compat with pre-schema free-form JSON.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -158,173 +155,6 @@ pub fn detect_host() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn coin_stem(coin: &str) -> String {
-    format!("{coin}_telemetry")
-}
-
-fn coin_name(c: CoinType) -> &'static str {
-    match c {
-        CoinType::Dynex => "dynex",
-        CoinType::Quai => "quai",
-        CoinType::Qubic => "qubic",
-        CoinType::Kaspa => "kaspa",
-        CoinType::Monero => "monero",
-        CoinType::Verus => "verus",
-        CoinType::Ocean => "ocean",
-        CoinType::Unknown => "unknown",
-    }
-}
-
-/// Project mining stats into one envelope per **active** coin (miner_perf).
-pub fn envelopes_from_mining_stats(source: &str, stats: &MiningStats) -> Vec<TelemetryEnvelope> {
-    let mut out = Vec::new();
-    let ts = stats.timestamp;
-
-    let push = |out: &mut Vec<TelemetryEnvelope>,
-                coin: CoinType,
-                hashrate: f64,
-                unit: &str,
-                acc: u64,
-                rej: u64,
-                active: bool,
-                uptime: u64| {
-        if !active && hashrate == 0.0 {
-            return;
-        }
-        let name = coin_name(coin);
-        let mut env = TelemetryEnvelope::new(
-            source,
-            RecordKind::MinerPerf,
-            coin_stem(name),
-            TelemetryPayload::MinerPerf {
-                coin: name.to_string(),
-                hashrate,
-                hashrate_unit: unit.to_string(),
-                shares_accepted: Some(acc),
-                shares_rejected: Some(rej),
-                is_active: active,
-                uptime_seconds: Some(uptime),
-            },
-        );
-        env.timestamp = ts;
-        out.push(env);
-    };
-
-    let d: &DynexStats = &stats.dynex;
-    if d.is_active {
-        push(
-            &mut out,
-            CoinType::Dynex,
-            d.hashrate_mh_s,
-            "MH/s",
-            d.shares_accepted,
-            d.shares_rejected,
-            d.is_active,
-            d.uptime_seconds,
-        );
-    }
-    let q: &QuaiStats = &stats.quai;
-    if q.is_active {
-        push(
-            &mut out,
-            CoinType::Quai,
-            q.hashrate_mh_s,
-            "MH/s",
-            q.shares_accepted,
-            q.shares_rejected,
-            q.is_active,
-            q.uptime_seconds,
-        );
-    }
-    let qb: &QubicStats = &stats.qubic;
-    // Prefer explicit sample flags: stdout hashrate (incl. 0 kH/s) vs health tick (incl. 0).
-    if qb.hashrate_sampled || qb.solutions_found > 0 {
-        push(
-            &mut out,
-            CoinType::Qubic,
-            qb.hashrate_kh_s,
-            "kH/s",
-            qb.solutions_found,
-            0,
-            qb.is_active,
-            qb.uptime_seconds,
-        );
-    } else if qb.tick_sampled || qb.current_tick > 0 {
-        let mut env = node_health(
-            source,
-            "qubic_telemetry",
-            NodeHealthInput {
-                coin: "qubic".into(),
-                tick: Some(u64::from(qb.current_tick)),
-                ..Default::default()
-            },
-        );
-        env.timestamp = ts;
-        out.push(env);
-    }
-    let k: &KaspaStats = &stats.kaspa;
-    if k.is_active {
-        push(
-            &mut out,
-            CoinType::Kaspa,
-            k.hashrate_mh_s,
-            "MH/s",
-            k.shares_accepted,
-            k.shares_rejected,
-            k.is_active,
-            k.uptime_seconds,
-        );
-    }
-    let m: &MoneroStats = &stats.monero;
-    if m.is_active {
-        push(
-            &mut out,
-            CoinType::Monero,
-            m.hashrate_h_s,
-            "H/s",
-            m.shares_accepted,
-            m.shares_rejected,
-            m.is_active,
-            m.uptime_seconds,
-        );
-    }
-    let v: &VerusStats = &stats.verus;
-    if v.is_active {
-        push(
-            &mut out,
-            CoinType::Verus,
-            v.hashrate_h_s,
-            "H/s",
-            v.shares_accepted,
-            v.shares_rejected,
-            v.is_active,
-            v.uptime_seconds,
-        );
-    }
-
-    out
-}
-
-pub fn envelopes_from_mining_telemetry(
-    source: &str,
-    t: &MiningTelemetry,
-) -> Vec<TelemetryEnvelope> {
-    envelopes_from_mining_stats(source, &t.stats)
-}
-
-/// Project a `WireMsg` into zero or more envelopes for durable write.
-///
-/// `WireMsg::Status` is **not** written to JSONL (high volume / log-only).
-/// Use tracing for status strings; disk holds structured miner/hw/control events.
-pub fn envelopes_from_wire(source: &str, msg: &WireMsg) -> Vec<TelemetryEnvelope> {
-    match msg {
-        WireMsg::MiningTelem(t) => envelopes_from_mining_telemetry(source, t.as_ref()),
-        WireMsg::Status(_) => Vec::new(),
-        WireMsg::GpuSchedulerEvent(e) => vec![envelope_from_gpu_sched(source, e)],
-        WireMsg::RotationEvent(e) => vec![envelope_from_rotation(source, e)],
-    }
-}
-
 pub fn envelope_from_gpu_sched(source: &str, e: &GpuSchedulerEvent) -> TelemetryEnvelope {
     TelemetryEnvelope::new(
         source,
@@ -386,6 +216,35 @@ pub fn node_health(source: &str, stem: &str, input: NodeHealthInput) -> Telemetr
             speed_hs: input.speed_hs,
             threads: input.threads,
             hashrate_mh: input.hashrate_mh,
+        },
+    )
+}
+
+/// Fields for a `miner_perf` envelope (avoids a long positional arg list).
+#[derive(Debug, Clone)]
+pub struct MinerPerfInput {
+    pub coin: String,
+    pub hashrate: f64,
+    pub hashrate_unit: String,
+    pub shares_accepted: Option<u64>,
+    pub shares_rejected: Option<u64>,
+    pub is_active: bool,
+    pub uptime_seconds: Option<u64>,
+}
+
+pub fn miner_perf(source: &str, stem: &str, input: MinerPerfInput) -> TelemetryEnvelope {
+    TelemetryEnvelope::new(
+        source,
+        RecordKind::MinerPerf,
+        stem,
+        TelemetryPayload::MinerPerf {
+            coin: input.coin,
+            hashrate: input.hashrate,
+            hashrate_unit: input.hashrate_unit,
+            shares_accepted: input.shares_accepted,
+            shares_rejected: input.shares_rejected,
+            is_active: input.is_active,
+            uptime_seconds: input.uptime_seconds,
         },
     )
 }
@@ -459,7 +318,7 @@ mod tests {
     #[test]
     fn envelope_round_trip_miner_perf() {
         let env = TelemetryEnvelope::new(
-            "supervisor",
+            "collector",
             RecordKind::MinerPerf,
             "dynex_telemetry",
             TelemetryPayload::MinerPerf {
@@ -503,58 +362,42 @@ mod tests {
     }
 
     #[test]
-    fn mining_stats_active_coin_emits_envelope() {
-        let mut stats = MiningStats::default();
-        stats.dynex.is_active = true;
-        stats.dynex.hashrate_mh_s = 2.0;
-        let envs = envelopes_from_mining_stats("supervisor", &stats);
-        assert_eq!(envs.len(), 1);
-        assert_eq!(envs[0].stem, "dynex_telemetry");
-        assert_eq!(envs[0].kind, RecordKind::MinerPerf);
-    }
-
-    #[test]
-    fn inactive_coins_emit_nothing() {
-        let stats = MiningStats::default();
-        assert!(envelopes_from_mining_stats("supervisor", &stats).is_empty());
-    }
-
-    #[test]
-    fn qubic_tick_only_emits_node_health() {
-        let mut stats = MiningStats::default();
-        stats.qubic.is_active = true;
-        stats.qubic.current_tick = 42_000;
-        stats.qubic.tick_sampled = true;
-        let envs = envelopes_from_mining_stats("supervisor", &stats);
-        assert_eq!(envs.len(), 1);
-        assert_eq!(envs[0].kind, RecordKind::NodeHealth);
-        assert_eq!(envs[0].stem, "qubic_telemetry");
-    }
-
-    #[test]
-    fn qubic_explicit_zero_hashrate_emits_miner_perf() {
-        // Stdout "0 kH/s" marks hashrate_sampled — must not drop or become NodeHealth.
-        let mut stats = MiningStats::default();
-        stats.qubic.is_active = true;
-        stats.qubic.hashrate_kh_s = 0.0;
-        stats.qubic.hashrate_sampled = true;
-        stats.qubic.current_tick = 0;
-        let envs = envelopes_from_mining_stats("supervisor", &stats);
-        assert_eq!(envs.len(), 1);
-        assert_eq!(envs[0].kind, RecordKind::MinerPerf);
-        assert_eq!(envs[0].stem, "qubic_telemetry");
-    }
-
-    #[test]
-    fn qubic_zero_tick_health_emits_node_health() {
-        // healthcheck can parse {"tick":0} at startup — must not become MinerPerf.
-        let mut stats = MiningStats::default();
-        stats.qubic.is_active = true;
-        stats.qubic.current_tick = 0;
-        stats.qubic.tick_sampled = true;
-        let envs = envelopes_from_mining_stats("supervisor", &stats);
-        assert_eq!(envs.len(), 1);
-        assert_eq!(envs[0].kind, RecordKind::NodeHealth);
+    fn miner_perf_constructor_builds_payload() {
+        let env = miner_perf(
+            "collector",
+            "kaspa_telemetry",
+            MinerPerfInput {
+                coin: "kaspa".into(),
+                hashrate: 1.25e9,
+                hashrate_unit: "H/s".into(),
+                shares_accepted: Some(10),
+                shares_rejected: Some(1),
+                is_active: true,
+                uptime_seconds: Some(120),
+            },
+        );
+        assert_eq!(env.kind, RecordKind::MinerPerf);
+        assert_eq!(env.stem, "kaspa_telemetry");
+        match env.payload {
+            TelemetryPayload::MinerPerf {
+                coin,
+                hashrate,
+                hashrate_unit,
+                shares_accepted,
+                shares_rejected,
+                is_active,
+                uptime_seconds,
+            } => {
+                assert_eq!(coin, "kaspa");
+                assert!((hashrate - 1.25e9).abs() < 1.0);
+                assert_eq!(hashrate_unit, "H/s");
+                assert_eq!(shares_accepted, Some(10));
+                assert_eq!(shares_rejected, Some(1));
+                assert!(is_active);
+                assert_eq!(uptime_seconds, Some(120));
+            }
+            _ => panic!("wrong payload"),
+        }
     }
 
     #[test]

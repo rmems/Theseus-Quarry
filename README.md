@@ -42,18 +42,20 @@ chmod 600 ~/.config/theseus-quarry/*.env
 # edit with real values
 ```
 
-Optional: a gitignored `.env` in the repo root still works as a local override. Shell scripts load config first via `scripts/load-env.sh`. The Rust supervisor uses `dotenv` and reads a repo-local `.env` if present (copy or symlink from config if you run the binary from the repo).
+Optional: a gitignored `.env` in the repo root still works as a local override. Shell scripts load config first via `scripts/load-env.sh`. The Rust collector uses `dotenvy` / env vars (copy or symlink from config if you run the binary from the repo).
 
 ### Telemetry (schema v1)
 
-Both **telemetry-collector** and **theseus-mining** write multi-stem JSONL under
-`TELEMETRY_DATA_DIR` (default `./data/telemetry`). Every line is a versioned envelope:
+**telemetry-collector** is the sole JSONL writer. It polls miner local HTTP APIs
+(MinerPerf), node RPC (NodeHealth), and sysfs (host hardware), writing multi-stem
+JSONL under `TELEMETRY_DATA_DIR` (default `./data/telemetry`). Every line is a
+versioned envelope:
 
 ```json
 {
   "schema_version": 1,
   "timestamp": "…",
-  "source": "collector|supervisor",
+  "source": "collector",
   "kind": "miner_perf|node_health|host_hw|gpu_sched|rotation",
   "stem": "dynex_telemetry",
   "payload": { "type": "…", "…": "…" }
