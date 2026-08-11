@@ -26,39 +26,57 @@ impl ProcessGovernor {
             .any(|miner| lower_name.contains(miner))
     }
 
-    /// On startup, unconditionally resume all known miners to clear any stale SIGSTOPs
-    pub fn resume_all_known_miners(&mut self) {
+    /// On startup, unconditionally resume all known miners to clear any stale SIGSTOPs.
+    /// Returns `true` when every known miner accepted SIGCONT (or none were present).
+    /// Failed resumes are tracked in `paused_processes` so the main loop can retry via
+    /// [`Self::resume_miners`].
+    pub fn resume_all_known_miners(&mut self) -> bool {
         self.sys.refresh_processes();
+        let mut all_ok = true;
         for process in self.sys.processes().values() {
             if self.is_miner_process(process.name()) {
+                let pid = process.pid();
+                let start_time = process.start_time();
                 if process.kill_with(Signal::Continue).unwrap_or(false) {
                     info!(
-                        pid = process.pid().as_u32(),
+                        pid = pid.as_u32(),
                         name = process.name(),
                         "Resumed miner process on startup"
                     );
+                    self.paused_processes.remove(&pid);
                 } else {
                     warn!(
-                        pid = process.pid().as_u32(),
+                        pid = pid.as_u32(),
                         name = process.name(),
                         "Failed to resume miner process on startup"
                     );
+                    self.paused_processes.insert(pid, start_time);
+                    all_ok = false;
                 }
             }
         }
+        all_ok && self.paused_processes.is_empty()
     }
 
-    /// Suspend any known miner processes that aren't already suspended by us.
+    /// Suspend known miner processes that are currently running.
+    ///
+    /// Already-stopped processes that we do **not** track are left alone so an operator's
+    /// intentional `SIGSTOP` is not claimed and later resumed when the emergency clears.
+    /// Tracked miners that were externally resumed (`!is_stopped`) are re-stopped.
     pub fn suspend_miners(&mut self) {
         self.sys.refresh_processes();
         for (&pid, process) in self.sys.processes() {
             if self.is_miner_process(process.name()) {
                 let start_time = process.start_time();
-
                 let is_tracked = self.paused_processes.get(&pid) == Some(&start_time);
                 let is_stopped = matches!(process.status(), ProcessStatus::Stop);
 
-                if !is_tracked || !is_stopped {
+                // Do not claim ownership of untracked processes that are already stopped.
+                if is_stopped && !is_tracked {
+                    continue;
+                }
+
+                if !is_stopped {
                     if process.kill_with(Signal::Stop).unwrap_or(false) {
                         info!(
                             pid = pid.as_u32(),
@@ -84,6 +102,11 @@ impl ProcessGovernor {
                 false
             }
         });
+    }
+
+    /// True when we still own at least one process that needs SIGCONT (or re-stop tracking).
+    pub fn has_pending_resumes(&self) -> bool {
+        !self.paused_processes.is_empty()
     }
 
     /// Resume only the miner processes that we successfully suspended.

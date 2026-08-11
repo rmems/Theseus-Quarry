@@ -229,7 +229,7 @@ impl GpuScheduler {
 
         let changed = new_decision != self.current_decision;
         let cooldown_met = self.last_transition.elapsed() >= self.config.transition_cooldown;
-        
+
         if changed && (cooldown_met || new_decision.is_paused()) {
             self.current_decision = new_decision;
             self.last_transition = Instant::now();

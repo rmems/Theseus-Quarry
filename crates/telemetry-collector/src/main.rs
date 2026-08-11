@@ -150,8 +150,13 @@ async fn main() -> anyhow::Result<()> {
         governor.is_emergency = true;
         governor.suspend_miners();
     } else {
-        info!("Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs...");
-        governor.resume_all_known_miners();
+        info!(
+            "Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs..."
+        );
+        // Failed resumes stay in paused_processes; the main loop retries while mining is allowed.
+        if !governor.resume_all_known_miners() {
+            warn!("Some miners failed to resume on startup; will retry next tick.");
+        }
     }
 
     #[cfg(unix)]
@@ -187,12 +192,17 @@ async fn main() -> anyhow::Result<()> {
                 currently_paused = true;
             }
             governor.suspend_miners();
-        } else if !should_pause && currently_paused {
-            info!("Thermal levels returned to normal: Resuming miners...");
-            if governor.resume_miners() {
-                currently_paused = false;
-            } else {
-                warn!("Some miners failed to resume; will retry next tick.");
+        } else {
+            // Drain tracked pauses when mining is allowed (emergency recovery + startup retries).
+            if currently_paused || governor.has_pending_resumes() {
+                if currently_paused {
+                    info!("GPU safety limits cleared (thermal/VRAM): Resuming miners...");
+                }
+                if governor.resume_miners() {
+                    currently_paused = false;
+                } else {
+                    warn!("Some miners failed to resume; will retry next tick.");
+                }
             }
         }
 
@@ -222,7 +232,7 @@ async fn main() -> anyhow::Result<()> {
 
         #[cfg(not(unix))]
         let sigterm_fut = std::future::pending::<()>();
-        
+
         #[cfg(unix)]
         let sigterm_fut = sigterm.recv();
 
