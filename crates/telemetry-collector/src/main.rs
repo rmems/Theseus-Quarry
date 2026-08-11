@@ -64,6 +64,15 @@ struct Args {
         default_value = "http://127.0.0.1:8099"
     )]
     qubic_node_api_url: String,
+
+    /// Comma-separated list of miner executable basenames to govern.
+    #[arg(
+        long,
+        env = "GOVERNED_MINERS",
+        value_delimiter = ',',
+        default_value = "bzminer,xmrig,onezerominer,rigel,qli-Client,hellminer,SRBMiner-MULTI"
+    )]
+    governed_miners: Vec<String>,
 }
 
 async fn flush_record(w: &mut writer::JsonlWriter, rec: sources::TelemetryRecord) {
@@ -130,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
         args.qubic_node_api_url.trim_end_matches('/')
     );
 
-    let mut governor = process_governor::ProcessGovernor::new();
+    let mut governor = process_governor::ProcessGovernor::new(args.governed_miners);
 
     // Initial GPU safety check before startup recovery
     let (decision, event) = gpu_sched.poll();
