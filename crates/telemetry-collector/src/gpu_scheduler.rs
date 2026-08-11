@@ -45,6 +45,10 @@ impl GpuDecision {
             GpuDecision::MiningThrottled { .. } => "throttled",
         }
     }
+
+    pub fn is_paused(&self) -> bool {
+        matches!(self, GpuDecision::MiningPaused(_))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -167,11 +171,15 @@ impl GpuScheduler {
             }
         };
 
+        let last_transition = Instant::now()
+            .checked_sub(config.transition_cooldown)
+            .unwrap_or_else(Instant::now);
+
         Self {
             config,
             provider,
             current_decision: GpuDecision::MiningAllowed,
-            last_transition: Instant::now(),
+            last_transition,
             last_heartbeat: Instant::now(),
             transition_count: 0,
             last_snapshot: None,
@@ -181,11 +189,15 @@ impl GpuScheduler {
     /// Create a scheduler with a mock snapshot provider (for tests).
     #[cfg(test)]
     pub fn new_mock(config: GpuSchedulerConfig, provider: Box<dyn GpuSnapshotProvider>) -> Self {
+        let last_transition = Instant::now()
+            .checked_sub(config.transition_cooldown)
+            .unwrap_or_else(Instant::now);
+
         Self {
             config,
             provider,
             current_decision: GpuDecision::MiningAllowed,
-            last_transition: Instant::now(),
+            last_transition,
             last_heartbeat: Instant::now(),
             transition_count: 0,
             last_snapshot: None,
@@ -216,7 +228,9 @@ impl GpuScheduler {
         };
 
         let changed = new_decision != self.current_decision;
-        if changed && self.last_transition.elapsed() >= self.config.transition_cooldown {
+        let cooldown_met = self.last_transition.elapsed() >= self.config.transition_cooldown;
+
+        if changed && (cooldown_met || new_decision.is_paused()) {
             self.current_decision = new_decision;
             self.last_transition = Instant::now();
             self.transition_count += 1;

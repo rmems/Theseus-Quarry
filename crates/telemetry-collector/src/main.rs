@@ -1,4 +1,5 @@
 mod gpu_scheduler;
+mod process_governor;
 mod sources;
 mod writer;
 
@@ -63,6 +64,15 @@ struct Args {
         default_value = "http://127.0.0.1:8099"
     )]
     qubic_node_api_url: String,
+
+    /// Comma-separated list of miner executable basenames to govern.
+    #[arg(
+        long,
+        env = "GOVERNED_MINERS",
+        value_delimiter = ',',
+        default_value = "bzminer,xmrig,onezerominer,rigel,qli-Client,hellminer,SRBMiner-MULTI"
+    )]
+    governed_miners: Vec<String>,
 }
 
 async fn flush_record(w: &mut writer::JsonlWriter, rec: sources::TelemetryRecord) {
@@ -129,7 +139,82 @@ async fn main() -> anyhow::Result<()> {
         args.qubic_node_api_url.trim_end_matches('/')
     );
 
+    let mut governor = process_governor::ProcessGovernor::new(args.governed_miners);
+
+    // Initial GPU safety check before startup recovery
+    let (decision, event) = gpu_sched.poll();
+    let mut currently_paused = decision.is_paused();
+
+    if currently_paused {
+        warn!("Initial state is thermal emergency / VRAM pressure. Suspending known miners...");
+        governor.is_emergency = true;
+        governor.suspend_miners();
+    } else {
+        info!(
+            "Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs..."
+        );
+        // Failed resumes stay in paused_processes; the main loop retries while mining is allowed.
+        if !governor.resume_all_known_miners() {
+            warn!("Some miners failed to resume on startup; will retry next tick.");
+        }
+    }
+
+    #[cfg(unix)]
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("Failed to create SIGTERM listener");
+
+    if let Some(event) = event {
+        let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
+        if let Err(e) = w.write_envelope(&env).await {
+            warn!(source = "collector", error = %e, "gpu_sched write failed");
+        } else {
+            debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
+        }
+    }
+
     loop {
+        let (decision, gpu_event) = gpu_sched.poll();
+        match decision {
+            gpu_scheduler::GpuDecision::MiningPaused(ref reason) => {
+                warn!(?reason, "GPU mining safety limit exceeded");
+            }
+            gpu_scheduler::GpuDecision::MiningThrottled { temp_c } => {
+                warn!(temp_c, "GPU mining thermal throttle active");
+            }
+            gpu_scheduler::GpuDecision::MiningAllowed => {}
+        }
+
+        let should_pause = decision.is_paused();
+        governor.is_emergency = should_pause;
+        if should_pause {
+            if !currently_paused {
+                warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
+                currently_paused = true;
+            }
+            governor.suspend_miners();
+        } else {
+            // Drain tracked pauses when mining is allowed (emergency recovery + startup retries).
+            if currently_paused || governor.has_pending_resumes() {
+                if currently_paused {
+                    info!("GPU safety limits cleared (thermal/VRAM): Resuming miners...");
+                }
+                if governor.resume_miners() {
+                    currently_paused = false;
+                } else {
+                    warn!("Some miners failed to resume; will retry next tick.");
+                }
+            }
+        }
+
+        if let Some(event) = gpu_event {
+            let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
+            if let Err(e) = w.write_envelope(&env).await {
+                warn!(source = "collector", error = %e, "gpu_sched write failed");
+            } else {
+                debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
+            }
+        }
+
         let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
             sources::monero::poll(&client, &args.monero_node_rpc_url),
             sources::dynex::poll(&client, &dynex_endpoint),
@@ -145,26 +230,23 @@ async fn main() -> anyhow::Result<()> {
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;
 
-        let (decision, gpu_event) = gpu_sched.poll();
-        match decision {
-            gpu_scheduler::GpuDecision::MiningPaused(ref reason) => {
-                warn!(?reason, "GPU mining safety limit exceeded");
-            }
-            gpu_scheduler::GpuDecision::MiningThrottled { temp_c } => {
-                warn!(temp_c, "GPU mining thermal throttle active");
-            }
-            gpu_scheduler::GpuDecision::MiningAllowed => {}
-        }
+        #[cfg(not(unix))]
+        let sigterm_fut = std::future::pending::<()>();
 
-        if let Some(event) = gpu_event {
-            let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
-            if let Err(e) = w.write_envelope(&env).await {
-                warn!(source = "collector", error = %e, "gpu_sched write failed");
-            } else {
-                debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
+        #[cfg(unix)]
+        let sigterm_fut = sigterm.recv();
+
+        tokio::select! {
+            _ = tokio::time::sleep(tick) => {}
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received SIGINT, shutting down...");
+                break;
+            }
+            _ = sigterm_fut => {
+                info!("Received SIGTERM, shutting down...");
+                break;
             }
         }
-
-        tokio::time::sleep(tick).await;
     }
+    Ok(())
 }
