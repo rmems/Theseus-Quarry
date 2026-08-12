@@ -46,5 +46,6 @@ debug = false
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
-# Panic abort is intentional for a daemon: smaller binary, restart via systemd.
-panic = "abort"
+# Keep default panic = "unwind" so ProcessGovernor::Drop can SIGCONT tracked
+# miners on panic. panic=abort would skip Drop and leave miners stopped with
+# no guaranteed systemd restart path in-repo.

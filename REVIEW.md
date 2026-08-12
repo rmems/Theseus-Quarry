@@ -29,11 +29,13 @@ Defined in the workspace root `Cargo.toml`:
 | **dev** | `cargo build -p telemetry-collector` | Fast iteration; `debug = 1` (line tables) |
 | **test** | `cargo test --workspace --locked` | Unit/integration tests with debug info |
 | **bench** | `cargo bench` (when benches exist) | Scaffold only; no LTO until real benches land |
-| **release** | `cargo build -p telemetry-collector --release --locked` | Production collector: thin LTO, single CGU, strip symbols, `panic = "abort"` |
+| **release** | `cargo build -p telemetry-collector --release --locked` | Production collector: thin LTO, single CGU, strip symbols; **unwind** panics so ProcessGovernor Drop can resume miners |
 
 Do not force a workspace version bump solely for profile tweaks; see [Release](#release).
 
-## Commands (must pass before merge / tag)
+## Commands
+
+Must pass before merge or tag:
 
 ```bash
 ./scripts/setup-rust.sh   # if needed
@@ -42,7 +44,7 @@ source "$HOME/.cargo/env"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo build -p telemetry-collector --release
+cargo build -p telemetry-collector --release --locked
 ```
 
 Optional:
