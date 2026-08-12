@@ -29,7 +29,7 @@ Defined in the workspace root `Cargo.toml`:
 | **dev** | `cargo build -p telemetry-collector` | Fast iteration; `debug = 1` (line tables) |
 | **test** | `cargo test --workspace --locked` | Unit/integration tests with debug info |
 | **bench** | `cargo bench` (when benches exist) | Scaffold only; no LTO until real benches land |
-| **release** | `cargo build -p telemetry-collector --release` | Production collector: thin LTO, single CGU, strip symbols, `panic = "abort"` |
+| **release** | `cargo build -p telemetry-collector --release --locked` | Production collector: thin LTO, single CGU, strip symbols, `panic = "abort"` |
 
 Do not force a workspace version bump solely for profile tweaks; see [Release](#release).
 

@@ -31,7 +31,7 @@ source "$HOME/.cargo/env"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo build -p telemetry-collector --release
+cargo build -p telemetry-collector --release --locked
 ```
 
 Dev image (source-only):
