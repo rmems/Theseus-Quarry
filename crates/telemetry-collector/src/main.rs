@@ -29,9 +29,17 @@ struct Args {
     #[arg(long, env = "THERMAL_EMERGENCY_C", default_value_t = 90.0)]
     thermal_emergency: f32,
 
-    /// Kaspa Miner local API port
+    /// BzMiner local HTTP API port (MinerPerf for Kaspa / multi-algo).
     #[arg(long, env = "KASPA_API_PORT", default_value_t = 4014)]
     kaspa_api_port: u16,
+
+    /// OneZeroMiner local HTTP API port (MinerPerf for Dynex).
+    #[arg(long, env = "DYNEX_API_PORT", default_value_t = 3010)]
+    dynex_api_port: u16,
+
+    /// XMRig local HTTP API port (MinerPerf for Monero). SRBMiner not parsed yet.
+    #[arg(long, env = "MONERO_API_PORT", default_value_t = 4015)]
+    monero_api_port: u16,
 
     /// Dynex Node RPC URL
     #[arg(
@@ -129,7 +137,9 @@ async fn main() -> anyhow::Result<()> {
     });
     let tick = Duration::from_secs(args.interval);
 
-    let kaspa_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
+    let bzminer_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
+    let onezerominer_endpoint = format!("http://127.0.0.1:{}/", args.dynex_api_port);
+    let xmrig_endpoint = format!("http://127.0.0.1:{}/", args.monero_api_port);
     let dynex_endpoint = format!(
         "{}/getheight",
         args.dynex_node_rpc_url.trim_end_matches('/')
@@ -215,18 +225,30 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        let (monero_rec, dynex_rec, quai_rec, qubic_rec, kaspa_rec) = tokio::join!(
+        let (
+            monero_node_rec,
+            dynex_node_rec,
+            quai_rec,
+            qubic_rec,
+            bzminer_rec,
+            xmrig_rec,
+            onezerominer_rec,
+        ) = tokio::join!(
             sources::monero::poll(&client, &args.monero_node_rpc_url),
             sources::dynex::poll(&client, &dynex_endpoint),
             sources::quai::poll(&client, &args.quai_node_rpc_url),
             sources::qubic::poll(&client, &qubic_endpoint),
-            sources::kaspa::poll(&client, &kaspa_endpoint),
+            sources::bzminer::poll(&client, &bzminer_endpoint, "kaspa"),
+            sources::xmrig::poll(&client, &xmrig_endpoint, "monero"),
+            sources::onezerominer::poll(&client, &onezerominer_endpoint, "dynex"),
         );
-        flush_record(&mut w, monero_rec).await;
-        flush_record(&mut w, dynex_rec).await;
+        flush_record(&mut w, monero_node_rec).await;
+        flush_record(&mut w, dynex_node_rec).await;
         flush_record(&mut w, quai_rec).await;
         flush_record(&mut w, qubic_rec).await;
-        flush_record(&mut w, kaspa_rec).await;
+        flush_record(&mut w, bzminer_rec).await;
+        flush_record(&mut w, xmrig_rec).await;
+        flush_record(&mut w, onezerominer_rec).await;
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;
 
