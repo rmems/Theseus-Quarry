@@ -25,3 +25,26 @@ clap = { version = "4.0", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4"
 rolling-file = "0.2.0"
+
+# Explicit workspace profiles (see REVIEW.md).
+# Defaults remain sensible; release is tuned for the long-running collector binary.
+
+[profile.dev]
+# Line tables only: faster incremental builds while keeping usable backtraces.
+debug = 1
+
+[profile.test]
+# Inherit default test profile (debug assertions on). Documented for clarity.
+debug = 1
+
+[profile.bench]
+# Scaffold for future criterion benches; avoid LTO until benches exist and need it.
+lto = false
+debug = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+# Panic abort is intentional for a daemon: smaller binary, restart via systemd.
+panic = "abort"
