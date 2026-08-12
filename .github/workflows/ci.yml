@@ -98,6 +98,9 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --locked
 
+      - name: cargo build release (telemetry-collector)
+        run: cargo build -p telemetry-collector --release --locked
+
   qodana:
     name: qodana · rust
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

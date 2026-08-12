@@ -23,12 +23,15 @@ Not an SNN/training product. See `CONTEXT.md` for domain terms (envelope, stem, 
 
 ## Local verify
 
+Full pre-merge / pre-tag checklist: **`REVIEW.md`** (profiles, domain checks, release policy).
+
 ```bash
 ./scripts/setup-rust.sh   # if needed
 source "$HOME/.cargo/env"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo build -p telemetry-collector --release --locked
 ```
 
 Dev image (source-only):
