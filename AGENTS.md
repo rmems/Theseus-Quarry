@@ -19,7 +19,7 @@ Not an SNN/training product. See `CONTEXT.md` for domain terms (envelope, stem, 
 - Do **not** commit `binaries/`, wallets, seeds, real `.env`, or chain data.
 - Prefer `--locked` on CI-style Cargo commands.
 - Telemetry schema lives in `mining-telemetry-core`; keep MinerPerf vs NodeHealth distinct.
-- MinerPerf comes from miner local HTTP APIs (`bzminer`, `xmrig`, `onezerominer`); store the API's native `hashrate_unit` (do not force MH/s).
+- MinerPerf comes from miner local HTTP APIs (`bzminer`, `xmrig`, `srbminer`, `onezerominer`); store the API's native `hashrate_unit` (do not force MH/s).
 
 ## Local verify
 

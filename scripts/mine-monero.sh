@@ -104,7 +104,8 @@ start_miner() {
             --pool "$pool" \
             --wallet "$wallet" \
             --cpu-threads "$threads" \
-            --http-port "$API_PORT" \
+            --api-enable \
+            --api-port "$API_PORT" \
             >> "$LOG_FILE" 2>&1
     else
         exec "$bin" \
