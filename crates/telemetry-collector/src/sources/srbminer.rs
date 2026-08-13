@@ -161,8 +161,13 @@ fn as_u64(v: Option<&serde_json::Value>) -> Option<u64> {
 
 fn as_u64_value(v: &serde_json::Value) -> Option<u64> {
     v.as_u64().or_else(|| {
-        v.as_f64()
-            .and_then(|n| (n.is_finite() && n >= 0.0 && n.fract() == 0.0).then_some(n as u64))
+        let n = v.as_f64()?;
+        if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
+            return None;
+        }
+        let c = n as u64;
+        // Reject values that do not convert losslessly (e.g. 1e30 → u64::MAX).
+        (c as f64 == n).then_some(c)
     })
 }
 
@@ -264,6 +269,20 @@ mod tests {
     #[test]
     fn rejects_hashrate_total_now_without_srb_marker() {
         assert!(parse_status(&json!({"hashrate_total_now": 55.5, "ok": true})).is_none());
+    }
+
+    #[test]
+    fn rejects_out_of_range_share_counts() {
+        let v = json!({
+            "algorithms": [{
+                "name": "randomx",
+                "hashrate": {"1min": 10.0},
+                "shares": {"accepted": 1e30, "rejected": 0.0}
+            }]
+        });
+        let p = parse_status(&v).unwrap();
+        assert_eq!(p.shares_accepted, None);
+        assert_eq!(p.shares_rejected, Some(0));
     }
 
     #[test]
