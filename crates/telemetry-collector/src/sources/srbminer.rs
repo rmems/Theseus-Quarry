@@ -85,7 +85,12 @@ fn looks_like_srb(resp: &serde_json::Value) -> bool {
     if resp.get("algorithms").and_then(|a| a.as_array()).is_some() {
         return true;
     }
+    // Older builds expose hashrate_total_now; require another SRB marker so
+    // unrelated JSON with that field is not treated as MinerPerf.
     finite_f64(resp.get("hashrate_total_now")).is_some()
+        && (resp.get("gpu_devices").is_some()
+            || resp.get("rig_name").is_some()
+            || resp.get("total_algorithms").is_some())
 }
 
 fn pick_algorithm(resp: &serde_json::Value) -> Option<&serde_json::Value> {
@@ -157,7 +162,7 @@ fn as_u64(v: Option<&serde_json::Value>) -> Option<u64> {
 fn as_u64_value(v: &serde_json::Value) -> Option<u64> {
     v.as_u64().or_else(|| {
         v.as_f64()
-            .and_then(|n| (n.is_finite() && n >= 0.0).then_some(n as u64))
+            .and_then(|n| (n.is_finite() && n >= 0.0 && n.fract() == 0.0).then_some(n as u64))
     })
 }
 
@@ -246,10 +251,33 @@ mod tests {
 
     #[test]
     fn falls_back_to_hashrate_total_now() {
-        let v = json!({"hashrate_total_now": 55.5, "mining_time": 3});
+        let v = json!({
+            "hashrate_total_now": 55.5,
+            "gpu_devices": [],
+            "mining_time": 3
+        });
         let p = parse_status(&v).unwrap();
         assert!((p.hashrate_hs - 55.5).abs() < 1e-6);
         assert_eq!(p.uptime_seconds, Some(3));
+    }
+
+    #[test]
+    fn rejects_hashrate_total_now_without_srb_marker() {
+        assert!(parse_status(&json!({"hashrate_total_now": 55.5, "ok": true})).is_none());
+    }
+
+    #[test]
+    fn rejects_fractional_share_counts() {
+        let v = json!({
+            "algorithms": [{
+                "name": "randomx",
+                "hashrate": {"1min": 10.0},
+                "shares": {"accepted": 10.7, "rejected": 1.0}
+            }]
+        });
+        let p = parse_status(&v).unwrap();
+        assert_eq!(p.shares_accepted, None);
+        assert_eq!(p.shares_rejected, Some(1));
     }
 
     #[test]
