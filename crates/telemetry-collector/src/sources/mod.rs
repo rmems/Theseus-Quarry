@@ -4,10 +4,12 @@ pub mod bzminer;
 pub mod dynex;
 pub mod hwmon;
 pub mod monero;
+pub mod monero_miner;
 pub mod onezerominer;
 pub mod quai;
 pub mod qubic;
 pub mod rapl;
+pub mod srbminer;
 pub mod xmrig;
 
 /// Poll result from a telemetry source (schema v1 envelope).

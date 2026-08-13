@@ -37,9 +37,13 @@ struct Args {
     #[arg(long, env = "DYNEX_API_PORT", default_value_t = 3010)]
     dynex_api_port: u16,
 
-    /// XMRig local HTTP API port (MinerPerf for Monero). SRBMiner not parsed yet.
+    /// XMRig / SRBMiner-Multi local HTTP API port (MinerPerf for Monero).
     #[arg(long, env = "MONERO_API_PORT", default_value_t = 4015)]
     monero_api_port: u16,
+
+    /// Which Monero miner HTTP adapter to use on MONERO_API_PORT.
+    #[arg(long, env = "MONERO_MINER", value_enum, default_value_t = sources::monero_miner::MoneroMinerKind::Auto)]
+    monero_miner: sources::monero_miner::MoneroMinerKind,
 
     /// Dynex Node RPC URL
     #[arg(
@@ -231,7 +235,7 @@ async fn main() -> anyhow::Result<()> {
             quai_rec,
             qubic_rec,
             bzminer_rec,
-            xmrig_rec,
+            monero_miner_rec,
             onezerominer_rec,
         ) = tokio::join!(
             sources::monero::poll(&client, &args.monero_node_rpc_url),
@@ -239,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
             sources::quai::poll(&client, &args.quai_node_rpc_url),
             sources::qubic::poll(&client, &qubic_endpoint),
             sources::bzminer::poll(&client, &bzminer_endpoint, "kaspa"),
-            sources::xmrig::poll(&client, &xmrig_endpoint, "monero"),
+            sources::monero_miner::poll(&client, &xmrig_endpoint, "monero", args.monero_miner,),
             sources::onezerominer::poll(&client, &onezerominer_endpoint, "dynex"),
         );
         flush_record(&mut w, monero_node_rec).await;
@@ -247,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
         flush_record(&mut w, quai_rec).await;
         flush_record(&mut w, qubic_rec).await;
         flush_record(&mut w, bzminer_rec).await;
-        flush_record(&mut w, xmrig_rec).await;
+        flush_record(&mut w, monero_miner_rec).await;
         flush_record(&mut w, onezerominer_rec).await;
         flush_record(&mut w, sources::hwmon::poll()).await;
         flush_record(&mut w, rapl.poll()).await;

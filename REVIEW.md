@@ -59,10 +59,10 @@ CI (self-hosted `ryzen`) runs fmt, clippy, test, and a **release-profile** colle
 ## Domain checks
 
 - [ ] **MinerPerf vs NodeHealth** — miner HTTP sources write `{coin}_miner_telemetry`; node RPC stays `{coin}_telemetry`. Do not mix kinds in one stem.
-- [ ] **Hashrate units** — store the miner API’s native `hashrate_unit` (do not force MH/s). XMRig/BzMiner document H/s; OneZero is conservative H/s until live confirm (#15).
+- [ ] **Hashrate units** — store the miner API’s native `hashrate_unit` (do not force MH/s). XMRig/BzMiner/SRBMiner document H/s; OneZero is conservative H/s until live confirm (#15).
 - [ ] **ProcessGovernor** — only track processes we stop; untracked already-stopped miners stay unowned; PID + start_time identity; no SIGCONT to unrelated PIDs.
 - [ ] **Schema** — `schema_version = 1` envelopes only; no free-form dual-compat.
-- [ ] **SRBMiner** — not parsed on `MONERO_API_PORT` yet (#14); do not claim support in docs without the parser.
+- [ ] **SRBMiner** — parsed on `MONERO_API_PORT` via `MONERO_MINER=auto|xmrig|srbminer` (shape sniff or pin). Native H/s. Soft-fail when the body is the other miner.
 
 ## Secrets / non-goals
 

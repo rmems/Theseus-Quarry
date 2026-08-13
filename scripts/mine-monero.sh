@@ -25,6 +25,7 @@ preflight_check() {
     # Load mining env (XDG config first, then repo .env)
     # shellcheck source=load-env.sh
     source "$SCRIPT_DIR/load-env.sh"
+    API_PORT="${MONERO_API_PORT:-4015}"
 
     # Check wallet (with backward compat for MONERO_WALLET_ADDRESS)
     local wallet="${MONERO_WALLET:-${MONERO_WALLET_ADDRESS:-}}"
@@ -104,7 +105,8 @@ start_miner() {
             --pool "$pool" \
             --wallet "$wallet" \
             --cpu-threads "$threads" \
-            --http-port "$API_PORT" \
+            --api-enable \
+            --api-port "$API_PORT" \
             >> "$LOG_FILE" 2>&1
     else
         exec "$bin" \

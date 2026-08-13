@@ -5,8 +5,8 @@
 //!
 //! Stem: `{coin}_miner_telemetry` (distinct from node `{coin}_telemetry`).
 //!
-//! SRBMiner-Multi is **not** parsed here (different JSON shape). Use a dedicated
-//! source if the deployment runs SRBMiner on this port.
+//! SRBMiner-Multi uses a different JSON shape (`GET /`); see `srbminer` and
+//! `monero_miner` for dispatch on the same port.
 
 use super::TelemetryRecord;
 use mining_telemetry_core::{MinerPerfInput, miner_perf};

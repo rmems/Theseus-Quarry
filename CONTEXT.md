@@ -29,6 +29,7 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 - **Owner crate:** `mining-telemetry-core`; collector must depend on it.
 - **Implemented (2026-07-28):** `crates/mining-telemetry-core/src/schema.rs`; collector dual-path node + host hardware; status lines stay log-only (not JSONL).
 - **Implemented (2026-08-11):** MinerPerf from miner local HTTP APIs (BzMiner / XMRig / OneZeroMiner); removed supervisor stdout `extract_hashrate` path. Node RPC sources remain for `NodeHealth`.
+- **Implemented (2026-08-12):** SRBMiner-Multi HTTP MinerPerf on `MONERO_API_PORT` (`MONERO_MINER=auto|xmrig|srbminer`); launch script uses `--api-enable --api-port`.
 
 ## Non-goals
 
