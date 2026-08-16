@@ -1,0 +1,26 @@
+REVIEW.md
+  s_b69581abe6dae8::t_0111599e5f13f0 107-108
+  s_b69581abe6dae8::t_931007173aac3b 76
+README.md
+  s_b69581abe6dae8::t_f89886be49ec7c 5
+CONTEXT.md
+  s_b69581abe6dae8::t_6ac29714ab6a87 34-66
+AGENTS.md
+  s_b69581abe6dae8::t_14049d7473714b 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4ad6f9d23d2866382349701fd4a1bd909294bc30",
+  "prompts": {},
+  "sessions": {
+    "s_b69581abe6dae8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f50f37e-e030-4502-9300-14cf35e4ff86",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
