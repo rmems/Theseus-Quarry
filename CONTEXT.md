@@ -31,6 +31,39 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 - **Implemented (2026-08-11):** MinerPerf from miner local HTTP APIs (BzMiner / XMRig / OneZeroMiner); removed supervisor stdout `extract_hashrate` path. Node RPC sources remain for `NodeHealth`.
 - **Implemented (2026-08-12):** SRBMiner-Multi HTTP MinerPerf on `MONERO_API_PORT` (`MONERO_MINER=auto|xmrig|srbminer`); launch script uses `--api-enable --api-port`.
 
+## Ownership boundaries
+
+Theseus-Quarry is the body, not the nervous system: multi-coin miner
+orchestration and ops telemetry only. Theseus does not know Thalamic,
+`neuromod`, or any SNN/training crate by name.
+
+### In scope (this repo)
+
+- Multi-coin miner launch scripts and local HTTP / node RPC polling
+- `telemetry-collector` writing schema v1 JSONL under `TELEMETRY_DATA_DIR`
+- `mining-telemetry-core` envelope / kinds / stems (MinerPerf vs NodeHealth vs host vs `gpu_sched`)
+- `GpuScheduler` + `ProcessGovernor` as mining safety (thermal / VRAM / SIGSTOP), not a learned policy
+- Two crates only — no new crate for research adapters
+
+### Out of scope (other repos)
+
+| Concern | Lives in |
+|---------|----------|
+| Dataset archive / sanitized copies | `Spikenaut-Vault` |
+| SNN training / proposals | `Spikenaut-SNN` |
+| Analog → spikes | `axon-encoder` (crates.io) |
+| SNN primitives | `neuromod` |
+| LLM hidden-state → SNN | `hybrid-fusion` |
+| Deterministic supervisor *consumer* of the telemetry contract | `thalamic-relay` (GH#17) |
+
+Theseus must **not** Cargo-depend on Thalamic, `neuromod`, `axon-encoder`,
+`hybrid-fusion`, `limbic-critic`, or `corpus-ipc`. Downstream may read our
+JSONL; they are not this repo's identity.
+
+GH#17 (dual-process Theseus producer + Thalamic supervisor, contract only) is
+the research/runtime coordination issue and stays in its own repo/issue; this
+section is docs-only and does not implement it.
+
 ## Non-goals
 
 - Shipping miner binaries or chain data in git

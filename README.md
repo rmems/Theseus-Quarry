@@ -2,7 +2,7 @@
 
 **Mining-strict** Rust workspace: multi-coin miner orchestration, process supervision, and **ops telemetry** (hashrate, shares, temperature, power, node health).
 
-This is not a neuromorphic / SNN research library. JSONL metrics are plain mining/hardware signals. Downstream training projects may consume them; they live elsewhere.
+Theseus-Quarry is a **producer**: it writes mining/hardware telemetry as JSONL and nothing else. This is not a neuromorphic / SNN research library, and it does not Cargo-depend on one. Downstream consumers — dataset archiving, SNN training, or a supervisor reading the telemetry contract — live in other repos; see `CONTEXT.md` → Ownership boundaries for the in/out table.
 
 ## Workspace
 

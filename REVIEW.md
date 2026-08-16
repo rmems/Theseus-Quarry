@@ -73,7 +73,7 @@ CI (self-hosted `ryzen`) runs fmt, clippy, test, and a **release-profile** colle
 
 Templates only: `.env.example`, `binaries.env.example`.
 
-**Non-goals of this checklist:** neuromorphic/SNN crates, one crate per coin, shipping miner binaries in git.
+**Non-goals of this checklist:** neuromorphic/SNN crates, `limen-return` Cargo deps, a third workspace crate, one crate per coin, shipping miner binaries in git. See `CONTEXT.md` → Ownership boundaries for the full in/out table.
 
 ## Release
 
@@ -104,6 +104,8 @@ Current release line: **v0.3.0** (ProcessGovernor + HTTP MinerPerf). Active mile
 - Sentry APM (optional later for hard collector faults only)
 - Full Prometheus exporter
 - Full criterion suite for every parser
+- SNN/training crates (`neuromod`, `axon-encoder`, `hybrid-fusion`, `thalamic-relay`, `limbic-critic`, `corpus-ipc`) or `limen-return` Cargo deps
+- A third workspace crate for research adapters (e.g. `crates/learned-supervisor`)
 
 ## Quick agent path
 
