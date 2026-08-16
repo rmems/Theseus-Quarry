@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Theseus-Quarry: a mining-strict Rust workspace — multi-coin miner orchestration and **ops telemetry only**. It is not an SNN/training product and must not become one; see Ownership boundaries below before adding any dependency or crate.
+Theseus-Quarry: a mining-strict Rust workspace — multi-coin miner orchestration and **ops telemetry only**. Multi-coin mining here is not a profit operation; it's a hardware/mining data-capture instrument for the owner's **Theseus Machine Physiology** project. The JSONL it produces is a raw data source consumed by separate personal-research repos (in the `rmems` org and `Limen-Neural`) that train an SNN model. This repo does not know about that pipeline by name and must not depend on it — it stays a strict producer. It is not an SNN/training product and must not become one; see Ownership boundaries below before adding any dependency or crate.
 
 ## Commands
 
