@@ -1,4 +1,4 @@
-# Build the source-only dev image on the self-hosted GPU host (Docker native).
+# Build the source-only dev image on a GitHub-hosted runner.
 
 name: Docker
 
@@ -37,21 +37,12 @@ env:
 jobs:
   build:
     name: build · smoke test
-    # Do not run the persistent self-hosted Docker host for fork PRs.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, X64, ryzen]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read
 
     steps:
-      - name: Sanitize workspace (self-hosted)
-        run: |
-          set -euo pipefail
-          if [ -d target ]; then
-            docker run --rm -v "$PWD:/w" -w /w alpine sh -c 'rm -rf /w/target' || true
-          fi
-
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
