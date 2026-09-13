@@ -108,18 +108,16 @@ docker run --rm -it \
 
 Or open the repo in VS Code / Cursor **Dev Containers** (`.devcontainer/`). Do not mount host wallet paths into the container by default.
 
-### CI (self-hosted GPU runner)
+### CI
 
-GitHub Actions runs on a **self-hosted** runner with labels:
-
-`self-hosted`, `Linux`, `X64`, `ryzen`
+`CI` and `Docker` run on GitHub-hosted `ubuntu-latest`.
 
 | Workflow | What it does |
 |----------|----------------|
 | `CI` | Latest stable Rust: `fmt`, `clippy -D warnings`, `test --workspace`; release-profile collector build |
 | `Docker` | Build `.devcontainer/Dockerfile`, smoke `cargo test` in the image |
 
-On the runner host (e.g. ShipOfTheseus):
+A self-hosted GPU runner with labels `self-hosted`, `Linux`, `X64`, `ryzen` can still be installed on the host (e.g. ShipOfTheseus):
 
 ```bash
 cd ~/actions-runner/Theseus-Quarry-runner
