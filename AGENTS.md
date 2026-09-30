@@ -48,7 +48,7 @@ Cloud agents use `.cursor/environment.json` (Dockerfile mode). Paths are relativ
 | Hook | Command |
 |------|---------|
 | Image | `.cursor/Dockerfile` — Ubuntu 24.04, stable Rust, nested Docker |
-| `install` | `rustup show && cargo fetch --locked` |
+| `install` | `export PATH="/usr/local/cargo/bin:${PATH}" && rustup show && cargo fetch --locked` |
 | `start` | Start Docker daemon (`fuse-overlayfs` + `iptables-legacy`) |
 
 After boot:
