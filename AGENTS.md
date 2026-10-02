@@ -1,5 +1,7 @@
 # Theseus-Quarry — agent guide
 
+See @CLAUDE.md for additional repository context. The @-mention makes Amp load it; Amp reads `CLAUDE.md` on its own only when no `AGENTS.md` exists.
+
 Mining-strict Rust workspace: multi-coin miner orchestration and ops telemetry.
 Not an SNN/training product. See `CONTEXT.md` for domain terms (envelope, stem, kind).
 
