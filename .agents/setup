@@ -45,11 +45,17 @@ if ! command -v rustup >/dev/null 2>&1; then
     sh -s -- -y --default-toolchain none --profile minimal
 fi
 # rust-toolchain.toml: stable, profile default + rustfmt, clippy, rust-src, rust-analyzer.
-rustup toolchain install stable --profile default --component rustfmt --component clippy --component rust-src --component rust-analyzer
+if rustup toolchain list | grep -q '^stable-'; then
+  rustup component add --toolchain stable rustfmt clippy rust-src rust-analyzer
+else
+  rustup toolchain install stable --profile default --component rustfmt --component clippy --component rust-src --component rust-analyzer
+fi
 rustup default stable
 
 # --- Prefetch crates (no build, no tests) ---
-cargo fetch --locked
+if [ -f Cargo.lock ]; then
+  cargo fetch --locked
+fi
 
 # --- Expose the tools to later shells ---
 # The PATH exports above last only for this script; Amp starts the agent's shell
