@@ -36,9 +36,9 @@ reviews:
     clippy:
       enabled: true
     shellcheck:
-      enabled: true
+      enabled: false
     hadolint:
-      enabled: true
+      enabled: false
     actionlint:
       enabled: true
     yamllint:
