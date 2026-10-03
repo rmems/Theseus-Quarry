@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit review configuration for rmems/Theseus-Quarry.
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  fail_commit_status: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+  - '!**/target/**'
+  path_instructions:
+  - path: crates/**/*.rs
+    instructions: >-
+      Rust edition 2024; rust-toolchain.toml tracks stable; no rust-version.
+      Do not suggest downgrading the edition or using std/language APIs unsupported
+      by the currently resolved stable toolchain. CI gate: cargo clippy --workspace
+      --all-targets --locked -- -D warnings, cargo test --workspace --locked,
+      cargo build -p telemetry-collector --release --locked. Flag anything that
+      would fail cargo fmt --check or clippy -D warnings. NVML is loaded at
+      runtime (nvml-wrapper): a missing GPU/driver is a handled error. Store miner
+      APIs' native hashrate_unit (don't force MH/s), keep MinerPerf and NodeHealth
+      streams separate, and only emit schema_version = 1 envelopes (REVIEW.md).
+  - path: '**/Cargo.toml'
+    instructions: Cargo manifest. Call out new dependencies and feature changes, and keep rust-version / edition consistent with CI.
+  - path: scripts/**/*.sh
+    instructions: Shell scripts. Must pass shellcheck; quote expansions and never echo secrets or tokens. Repo .shellcheckrc lives in .qlty/configs/.
+  - path: '{.env.example,binaries.env.example}'
+    instructions: 'Templates only: use placeholders for credentials, wallets, seeds, keys, and private/internal hostnames; public pool and RPC endpoints are allowed.'
+  - path: '**/Dockerfile'
+    instructions: Dockerfile. Keep secrets out of layers and build args, and keep toolchain versions in line with CI.
+  - path: .github/workflows/**
+    instructions: GitHub Actions workflows. Keep permissions least-privilege and job commands in sync with the local gates documented in the repo. Every action reference is pinned to a full commit SHA today; new or bumped actions must be too. Current workflows run on GitHub-hosted ubuntu-latest runners; if a self-hosted job is introduced, don't broaden its pull_request exposure without gates.
+  tools:
+    clippy:
+      enabled: true
+    shellcheck:
+      enabled: false
+    hadolint:
+      enabled: false
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    biome:
+      enabled: false
