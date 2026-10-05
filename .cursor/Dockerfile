@@ -65,7 +65,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rustup default stable \
     && rustc --version \
     && cargo --version \
-    && chown -R ubuntu:ubuntu "${CARGO_HOME}" "${RUSTUP_HOME}"
+    && chown -R ubuntu:ubuntu "${CARGO_HOME}" "${RUSTUP_HOME}" \
+    && ln -sf /usr/local/cargo/bin/* /usr/local/bin/ \
+    && printf '%s\n' \
+        'export RUSTUP_HOME=/usr/local/rustup' \
+        'export CARGO_HOME=/usr/local/cargo' \
+        'export PATH="/usr/local/cargo/bin:$PATH"' \
+        > /etc/profile.d/cargo.sh \
+    && chmod 0644 /etc/profile.d/cargo.sh
 
 USER ubuntu
 WORKDIR /workspace
