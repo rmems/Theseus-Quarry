@@ -1,9 +1,14 @@
 use super::TelemetryRecord;
+use super::http_poll::{self, ProbeBudget};
 use mining_telemetry_core::{NodeHealthInput, node_health};
 use serde_json::json;
 
-pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
-    let envelope = try_poll(client, endpoint).await;
+pub async fn poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+    budget: ProbeBudget,
+) -> TelemetryRecord {
+    let envelope = try_poll(client, endpoint, budget).await;
     TelemetryRecord {
         source: "monero",
         envelope,
@@ -13,28 +18,18 @@ pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
 async fn try_poll(
     client: &reqwest::Client,
     endpoint: &str,
+    budget: ProbeBudget,
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let mining_body = json!({"jsonrpc": "2.0", "id": "0", "method": "mining_status"});
     let info_body = json!({"jsonrpc": "2.0", "id": "0", "method": "get_info"});
 
-    let mining_resp: serde_json::Value = client
-        .post(endpoint)
-        .json(&mining_body)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-    let info_resp: serde_json::Value = client
-        .post(endpoint)
-        .json(&info_body)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
+    let timeout = budget.request_timeout()?;
+    let mining_resp =
+        http_poll::post_json_object("monero", client, endpoint, &mining_body, timeout).await?;
+
+    let timeout = budget.request_timeout()?;
+    let info_resp =
+        http_poll::post_json_object("monero", client, endpoint, &info_body, timeout).await?;
 
     let mining = mining_resp.get("result")?;
     let info = info_resp.get("result")?;

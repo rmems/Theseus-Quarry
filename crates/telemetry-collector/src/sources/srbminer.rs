@@ -7,6 +7,7 @@
 //! Soft-fails (`None`) on XMRig `/1/summary` or other non-SRB JSON.
 
 use super::TelemetryRecord;
+use super::http_poll::{self, CLIENT_REQUEST_TIMEOUT};
 use mining_telemetry_core::{MinerPerfInput, miner_perf};
 
 pub async fn poll(client: &reqwest::Client, endpoint: &str, coin: &str) -> TelemetryRecord {
@@ -23,11 +24,7 @@ async fn try_poll(
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let base = endpoint.trim_end_matches('/');
     let url = format!("{base}/");
-    let response = client.get(&url).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let resp: serde_json::Value = response.json().await.ok()?;
+    let resp = http_poll::get_json_object("srbminer", client, &url, CLIENT_REQUEST_TIMEOUT).await?;
     let parsed = parse_status(&resp)?;
     let stem = format!("{coin}_miner_telemetry");
     Some(miner_perf(

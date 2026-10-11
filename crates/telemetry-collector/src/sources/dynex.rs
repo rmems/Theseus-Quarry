@@ -1,4 +1,5 @@
 use super::TelemetryRecord;
+use super::http_poll::{self, CLIENT_REQUEST_TIMEOUT};
 use mining_telemetry_core::{NodeHealthInput, node_health};
 
 pub async fn poll(client: &reqwest::Client, endpoint: &str) -> TelemetryRecord {
@@ -12,7 +13,8 @@ async fn try_poll(
     client: &reqwest::Client,
     endpoint: &str,
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-    let resp: serde_json::Value = client.get(endpoint).send().await.ok()?.json().await.ok()?;
+    let resp =
+        http_poll::get_json_object("dynex", client, endpoint, CLIENT_REQUEST_TIMEOUT).await?;
     let height = resp.get("height").and_then(|v| v.as_u64());
     Some(node_health(
         "collector",

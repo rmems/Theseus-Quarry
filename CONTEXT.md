@@ -30,6 +30,7 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 - **Implemented (2026-07-28):** `crates/mining-telemetry-core/src/schema.rs`; collector dual-path node + host hardware; status lines stay log-only (not JSONL).
 - **Implemented (2026-08-11):** MinerPerf from miner local HTTP APIs (BzMiner / XMRig / OneZeroMiner); removed supervisor stdout `extract_hashrate` path. Node RPC sources remain for `NodeHealth`.
 - **Implemented (2026-08-12):** SRBMiner-Multi HTTP MinerPerf on `MONERO_API_PORT` (`MONERO_MINER=auto|xmrig|srbminer`); launch script uses `--api-enable --api-port`.
+- **Implemented (2026-10-11):** Collector HTTP I/O budgets in `telemetry-collector` → `sources/http_poll.rs`: **1 MiB** max response body before JSON parse; **2s** default client timeout; sequential probes within one tick share `TELEMETRY_INTERVAL - 500ms` slack. Node RPC URLs stay env-configurable but default to loopback; `NODE_RPC_LOOPBACK_ONLY=true` (default) rejects non-loopback hosts. Skips log adapter + status class, never raw bodies.
 
 ## Ownership boundaries
 

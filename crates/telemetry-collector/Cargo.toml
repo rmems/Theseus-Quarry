@@ -23,3 +23,7 @@ nvml-wrapper = { workspace = true }
 shellexpand = "3"
 rolling-file = { workspace = true }
 sysinfo = "0.30"
+futures-util = "0.3"
+
+[dev-dependencies]
+wiremock = "0.6"

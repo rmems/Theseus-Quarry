@@ -18,6 +18,10 @@ struct Args {
     data_dir: String,
 
     /// Poll interval in seconds.
+    ///
+    /// Sequential HTTP probes (OneZeroMiner, Monero node RPC pair, Quai RPC fallbacks)
+    /// share a per-tick budget of `interval - 500ms` slack; each request is capped by
+    /// the client timeout (2s). See `sources::http_poll`.
     #[arg(long, env = "TELEMETRY_INTERVAL", default_value_t = 5)]
     interval: u64,
 
@@ -45,7 +49,7 @@ struct Args {
     #[arg(long, env = "MONERO_MINER", value_enum, default_value_t = sources::monero_miner::MoneroMinerKind::Auto)]
     monero_miner: sources::monero_miner::MoneroMinerKind,
 
-    /// Dynex Node RPC URL
+    /// Dynex Node RPC URL (loopback recommended; see `NODE_RPC_LOOPBACK_ONLY`).
     #[arg(
         long,
         env = "DYNEX_NODE_RPC_URL",
@@ -53,7 +57,7 @@ struct Args {
     )]
     dynex_node_rpc_url: String,
 
-    /// Monero Node RPC URL
+    /// Monero Node RPC URL (loopback recommended; see `NODE_RPC_LOOPBACK_ONLY`).
     #[arg(
         long,
         env = "MONERO_NODE_RPC_URL",
@@ -61,7 +65,7 @@ struct Args {
     )]
     monero_node_rpc_url: String,
 
-    /// Quai Node RPC URL
+    /// Quai Node RPC URL (loopback recommended; see `NODE_RPC_LOOPBACK_ONLY`).
     #[arg(
         long,
         env = "QUAI_NODE_RPC_URL",
@@ -69,13 +73,17 @@ struct Args {
     )]
     quai_node_rpc_url: String,
 
-    /// Qubic Node API URL
+    /// Qubic Node API URL (loopback recommended; see `NODE_RPC_LOOPBACK_ONLY`).
     #[arg(
         long,
         env = "QUBIC_NODE_API_URL",
         default_value = "http://127.0.0.1:8099"
     )]
     qubic_node_api_url: String,
+
+    /// When true (default), node RPC/API URLs must target loopback (`127.0.0.1`, `localhost`, or `::1`).
+    #[arg(long, env = "NODE_RPC_LOOPBACK_ONLY", default_value_t = true)]
+    node_rpc_loopback_only: bool,
 
     /// Comma-separated list of miner executable basenames to govern.
     #[arg(
@@ -129,8 +137,29 @@ async fn main() -> anyhow::Result<()> {
         "telemetry-collector starting"
     );
 
+    sources::http_poll::validate_node_rpc_url(
+        "dynex",
+        &args.dynex_node_rpc_url,
+        args.node_rpc_loopback_only,
+    )?;
+    sources::http_poll::validate_node_rpc_url(
+        "monero",
+        &args.monero_node_rpc_url,
+        args.node_rpc_loopback_only,
+    )?;
+    sources::http_poll::validate_node_rpc_url(
+        "quai",
+        &args.quai_node_rpc_url,
+        args.node_rpc_loopback_only,
+    )?;
+    sources::http_poll::validate_node_rpc_url(
+        "qubic",
+        &args.qubic_node_api_url,
+        args.node_rpc_loopback_only,
+    )?;
+
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(2000))
+        .timeout(sources::http_poll::CLIENT_REQUEST_TIMEOUT)
         .build()?;
     let mut w = writer::JsonlWriter::new(&data_dir);
     let rapl = sources::rapl::RaplState::new();
@@ -229,6 +258,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(args.interval);
+
         let (
             monero_node_rec,
             dynex_node_rec,
@@ -238,13 +269,13 @@ async fn main() -> anyhow::Result<()> {
             monero_miner_rec,
             onezerominer_rec,
         ) = tokio::join!(
-            sources::monero::poll(&client, &args.monero_node_rpc_url),
+            sources::monero::poll(&client, &args.monero_node_rpc_url, probe_budget),
             sources::dynex::poll(&client, &dynex_endpoint),
-            sources::quai::poll(&client, &args.quai_node_rpc_url),
+            sources::quai::poll(&client, &args.quai_node_rpc_url, probe_budget),
             sources::qubic::poll(&client, &qubic_endpoint),
             sources::bzminer::poll(&client, &bzminer_endpoint, "kaspa"),
             sources::monero_miner::poll(&client, &xmrig_endpoint, "monero", args.monero_miner,),
-            sources::onezerominer::poll(&client, &onezerominer_endpoint, "dynex"),
+            sources::onezerominer::poll(&client, &onezerominer_endpoint, "dynex", probe_budget),
         );
         flush_record(&mut w, monero_node_rec).await;
         flush_record(&mut w, dynex_node_rec).await;
