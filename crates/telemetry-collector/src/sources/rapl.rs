@@ -1,20 +1,75 @@
+//! Powercap RAPL package energy counter → `HostHw.cpu_package_power_w`.
+//!
+//! `energy_uj` is a cumulative **microjoule** counter that wraps at
+//! `max_energy_range_uj` (not `u64::MAX`). Power is the delta between two
+//! samples divided by elapsed time, so:
+//!
+//! - the first sample after start has no delta and emits **nothing** (it used
+//!   to emit `0.0 W`, a fabricated reading);
+//! - a counter that goes backwards is unwrapped with `max_energy_range_uj`
+//!   when that file is readable, otherwise treated as a reset and dropped;
+//! - a non-positive `dt` or an implausible result is dropped, never zeroed.
+//!
+//! On AMD Zen the kernel exposes package energy through the same
+//! `intel-rapl:0` powercap zone. The zone `name` is checked to be a package
+//! domain; whether this is the right zone on the workstation is unverified
+//! without the live host (audit U-4).
+
 use super::TelemetryRecord;
 use mining_telemetry_core::host_hw;
 use std::sync::Mutex;
 use std::time::Instant;
 
-const RAPL_PATH: &str = "/sys/class/powercap/intel-rapl:0/energy_uj";
+const RAPL_ZONE: &str = "/sys/class/powercap/intel-rapl:0";
+
+/// Upper bound for a plausible desktop CPU package (W). Above this the delta
+/// is a counter fault (missed wrap, reset), not physiology.
+const MAX_PLAUSIBLE_W: f64 = 2000.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EnergySample {
+    pub energy_uj: u64,
+    pub at: Instant,
+}
+
+/// Pure delta → watts. `None` means "no trustworthy reading this tick".
+pub(crate) fn power_from_delta(
+    prev: Option<EnergySample>,
+    now: EnergySample,
+    max_energy_range_uj: Option<u64>,
+) -> Option<f64> {
+    let prev = prev?;
+    let dt = now.at.checked_duration_since(prev.at)?.as_secs_f64();
+    if dt <= 0.0 {
+        return None;
+    }
+    let delta_uj = if now.energy_uj >= prev.energy_uj {
+        now.energy_uj - prev.energy_uj
+    } else {
+        // Counter went backwards: a wrap only if we know the range and the
+        // previous value was inside it; otherwise a reset → drop.
+        let range = max_energy_range_uj?;
+        if prev.energy_uj > range {
+            return None;
+        }
+        (range - prev.energy_uj).checked_add(now.energy_uj)?
+    };
+    let watts = (delta_uj as f64 / 1_000_000.0) / dt;
+    (watts.is_finite() && (0.0..=MAX_PLAUSIBLE_W).contains(&watts)).then_some(watts)
+}
+
+fn read_u64(path: &str) -> Option<u64> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+}
 
 pub struct RaplState {
-    last_energy_uj: Mutex<Option<u64>>,
-    last_time: Mutex<Option<Instant>>,
+    last: Mutex<Option<EnergySample>>,
 }
 
 impl RaplState {
     pub fn new() -> Self {
         Self {
-            last_energy_uj: Mutex::new(None),
-            last_time: Mutex::new(None),
+            last: Mutex::new(None),
         }
     }
 
@@ -26,32 +81,22 @@ impl RaplState {
     }
 
     fn try_poll(&self) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-        let raw = std::fs::read_to_string(RAPL_PATH).ok()?;
-        let energy: u64 = raw.trim().parse().ok()?;
-        let now = Instant::now();
-
-        let mut last_e = self.last_energy_uj.lock().unwrap();
-        let mut last_t = self.last_time.lock().unwrap();
-
-        let power_w = if let (Some(prev_e), Some(prev_t)) = (*last_e, *last_t) {
-            let dt = now.duration_since(prev_t).as_secs_f64();
-            if dt > 0.0 {
-                let delta = if energy >= prev_e {
-                    energy - prev_e
-                } else {
-                    u64::MAX - prev_e + energy
-                };
-                (delta as f64 / 1_000_000.0) / dt
-            } else {
-                0.0
-            }
-        } else {
-            0.0
+        if let Ok(name) = std::fs::read_to_string(format!("{RAPL_ZONE}/name"))
+            && !name.trim().starts_with("package")
+        {
+            return None;
+        }
+        let energy_uj = read_u64(&format!("{RAPL_ZONE}/energy_uj"))?;
+        let max_range = read_u64(&format!("{RAPL_ZONE}/max_energy_range_uj"));
+        let now = EnergySample {
+            energy_uj,
+            at: Instant::now(),
         };
-
-        *last_e = Some(energy);
-        *last_t = Some(now);
-
+        let prev = {
+            let mut last = self.last.lock().unwrap_or_else(|p| p.into_inner());
+            last.replace(now)
+        };
+        let power_w = power_from_delta(prev, now, max_range)?;
         Some(host_hw(
             "collector",
             "rapl_telemetry",
@@ -60,5 +105,64 @@ impl RaplState {
             None,
             Some(power_w),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn pair(e0: u64, e1: u64, secs: u64) -> (EnergySample, EnergySample) {
+        let t0 = Instant::now();
+        (
+            EnergySample {
+                energy_uj: e0,
+                at: t0,
+            },
+            EnergySample {
+                energy_uj: e1,
+                at: t0 + Duration::from_secs(secs),
+            },
+        )
+    }
+
+    #[test]
+    fn first_sample_emits_nothing_not_zero() {
+        let (_, now) = pair(0, 1_000_000, 1);
+        assert_eq!(power_from_delta(None, now, Some(u64::MAX)), None);
+    }
+
+    #[test]
+    fn microjoules_per_second_to_watts() {
+        let (a, b) = pair(10_000_000, 135_000_000, 1);
+        assert_eq!(power_from_delta(Some(a), b, None), Some(125.0));
+    }
+
+    #[test]
+    fn wrap_uses_max_energy_range_not_u64_max() {
+        // range 262_143_328_850 uJ (typical Zen value); wrap by 100 J total.
+        let range = 262_143_328_850;
+        let (a, b) = pair(range - 40_000_000, 60_000_000, 1);
+        assert_eq!(power_from_delta(Some(a), b, Some(range)), Some(100.0));
+    }
+
+    #[test]
+    fn backwards_counter_without_range_is_reset_dropped() {
+        let (a, b) = pair(500_000_000, 1_000, 1);
+        assert_eq!(power_from_delta(Some(a), b, None), None);
+    }
+
+    #[test]
+    fn zero_dt_dropped() {
+        let (a, b) = pair(1, 2, 0);
+        assert_eq!(power_from_delta(Some(a), b, None), None);
+    }
+
+    #[test]
+    fn implausible_power_dropped() {
+        // 10 kJ in 1 s = 10 kW: counter fault.
+        let (a, b) = pair(0, 10_000_000_000, 1);
+        assert_eq!(power_from_delta(Some(a), b, None), None);
     }
 }
