@@ -31,6 +31,12 @@ Not an SNN/training product. Downstream consumers may read JSONL; they are not t
 - **Implemented (2026-08-11):** MinerPerf from miner local HTTP APIs (BzMiner / XMRig / OneZeroMiner); removed supervisor stdout `extract_hashrate` path. Node RPC sources remain for `NodeHealth`.
 - **Implemented (2026-08-12):** SRBMiner-Multi HTTP MinerPerf on `MONERO_API_PORT` (`MONERO_MINER=auto|xmrig|srbminer`); launch script uses `--api-enable --api-port`.
 
+### Frozen CSV contract audit (2026-10-19, #24 / RM-629)
+
+- **Still JSONL-only.** No CSV exporter. `mining_telemetry_core::csv_contract` is a one-way copy of the vahtisiru frozen header + reader semantics (no Cargo dep), plus a strict producer row builder for any future, separately approved projection.
+- **No fabricated vitals.** Unread NVML temp/power are omitted (`Option`), not `0` / `50 °C` / `100 W`; RAPL emits nothing until a real energy delta exists; hwmon resolves channels by label and rejects non-integer/implausible millidegrees.
+- Full column map, fixes, and live-host unknowns: `docs/contract-audit-rm-629.md`.
+
 ## Ownership boundaries
 
 Theseus-Quarry is the body, not the nervous system: multi-coin miner

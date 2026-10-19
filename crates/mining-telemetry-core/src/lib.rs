@@ -1,3 +1,4 @@
+pub mod csv_contract;
 mod schema;
 
 pub use schema::{
@@ -13,8 +14,11 @@ pub struct GpuSchedulerEvent {
     pub decision: String,
     pub vram_used_mb: u64,
     pub vram_total_mb: u64,
-    pub gpu_temp_c: f32,
-    pub power_w: f32,
+    /// GPU die temperature (°C). `None` when NVML could not read the sensor
+    /// this tick — never a fabricated or zero-filled value.
+    pub gpu_temp_c: Option<f32>,
+    /// GPU board power (W, converted from NVML milliwatts). `None` when unread.
+    pub power_w: Option<f32>,
     pub transition_count: u64,
 }
 

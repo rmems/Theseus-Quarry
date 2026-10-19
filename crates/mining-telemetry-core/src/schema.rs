@@ -92,8 +92,13 @@ pub enum TelemetryPayload {
         decision: String,
         vram_used_mb: u64,
         vram_total_mb: u64,
-        gpu_temp_c: f32,
-        power_w: f32,
+        /// GPU die temperature (°C). Omitted when the sensor was not read;
+        /// never zero-filled or fabricated (RM-629 audit).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gpu_temp_c: Option<f32>,
+        /// GPU board power (W). Omitted when the sensor was not read.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        power_w: Option<f32>,
         transition_count: u64,
     },
     Rotation {
