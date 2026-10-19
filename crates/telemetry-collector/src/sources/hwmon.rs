@@ -53,8 +53,25 @@ fn input_for_label(hwmon: &Path, label: &str) -> Option<PathBuf> {
     })
 }
 
+/// True when the chip publishes any `temp{N}_label` file.
+fn has_labels(hwmon: &Path) -> bool {
+    (1..=16).any(|n| hwmon.join(format!("temp{n}_label")).exists())
+}
+
+/// Resolve a channel's input file. The fixed legacy index is used only on
+/// chips that publish no labels at all: if labels exist but this one is
+/// absent (e.g. no `Tccd2` on an 8-core part), the index may belong to a
+/// different sensor, so the channel is reported missing instead.
+fn channel_input(hwmon: &Path, label: &str, legacy_input: &str) -> Option<PathBuf> {
+    match input_for_label(hwmon, label) {
+        Some(path) => Some(path),
+        None if !has_labels(hwmon) => Some(hwmon.join(legacy_input)),
+        None => None,
+    }
+}
+
 fn read_channel(hwmon: &Path, label: &str, legacy_input: &str) -> Option<f64> {
-    let path = input_for_label(hwmon, label).unwrap_or_else(|| hwmon.join(legacy_input));
+    let path = channel_input(hwmon, label, legacy_input)?;
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| parse_millidegrees(&s))
@@ -112,6 +129,32 @@ mod tests {
         assert_eq!(read_channel(&dir, "Tccd1", "temp3_input"), Some(99.0));
         // No label, no legacy file → None (not 0.0).
         assert_eq!(read_channel(&dir, "Tccd2", "temp4_input"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn labeled_chip_never_falls_back_to_legacy_index() {
+        let dir = std::env::temp_dir().join(format!("theseus_hwmon_lbl_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 8-core part: Tctl and Tccd1 are labeled, there is no Tccd2, and the
+        // legacy Tccd2 index temp4 holds an unrelated sensor.
+        std::fs::write(dir.join("temp1_input"), "61500\n").unwrap();
+        std::fs::write(dir.join("temp1_label"), "Tctl\n").unwrap();
+        std::fs::write(dir.join("temp3_input"), "58000\n").unwrap();
+        std::fs::write(dir.join("temp3_label"), "Tccd1\n").unwrap();
+        std::fs::write(dir.join("temp4_input"), "35000\n").unwrap();
+        assert_eq!(read_channel(&dir, "Tccd2", "temp4_input"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unlabeled_chip_uses_legacy_index() {
+        let dir = std::env::temp_dir().join(format!("theseus_hwmon_nolbl_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("temp1_input"), "61500\n").unwrap();
+        assert_eq!(read_channel(&dir, "Tctl", "temp1_input"), Some(61.5));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
