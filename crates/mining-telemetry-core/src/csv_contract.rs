@@ -132,13 +132,37 @@ impl fmt::Display for RowError {
 
 impl std::error::Error for RowError {}
 
-fn checked(
+/// A contract column and its plausible physical range.
+#[derive(Clone, Copy)]
+struct Channel {
     column: &'static str,
+    range: (f64, f64),
+}
+
+const GPU_TEMP: Channel = Channel {
+    column: "gpu_temp_c",
+    range: TEMP_C_RANGE,
+};
+const GPU_POWER: Channel = Channel {
+    column: "gpu_power_w",
+    range: POWER_W_RANGE,
+};
+const CPU_TCTL: Channel = Channel {
+    column: "cpu_tctl_c",
+    range: TEMP_C_RANGE,
+};
+const CPU_PACKAGE_POWER: Channel = Channel {
+    column: "cpu_package_power_w",
+    range: POWER_W_RANGE,
+};
+
+fn checked(
+    channel: Channel,
     reading: Option<Reading>,
     row_ts: u64,
     max_skew_ms: u64,
-    range: (f64, f64),
 ) -> Result<f32, RowError> {
+    let Channel { column, range } = channel;
     let r = reading.ok_or(RowError::Missing { column })?;
     if !r.value.is_finite() {
         return Err(RowError::NonFinite { column });
@@ -179,33 +203,14 @@ impl ContractRow {
         }
         Ok(Self {
             timestamp_ms,
-            gpu_temp_c: checked(
-                "gpu_temp_c",
-                samples.gpu_temp_c,
-                timestamp_ms,
-                max_skew_ms,
-                TEMP_C_RANGE,
-            )?,
-            gpu_power_w: checked(
-                "gpu_power_w",
-                samples.gpu_power_w,
-                timestamp_ms,
-                max_skew_ms,
-                POWER_W_RANGE,
-            )?,
-            cpu_tctl_c: checked(
-                "cpu_tctl_c",
-                samples.cpu_tctl_c,
-                timestamp_ms,
-                max_skew_ms,
-                TEMP_C_RANGE,
-            )?,
+            gpu_temp_c: checked(GPU_TEMP, samples.gpu_temp_c, timestamp_ms, max_skew_ms)?,
+            gpu_power_w: checked(GPU_POWER, samples.gpu_power_w, timestamp_ms, max_skew_ms)?,
+            cpu_tctl_c: checked(CPU_TCTL, samples.cpu_tctl_c, timestamp_ms, max_skew_ms)?,
             cpu_package_power_w: checked(
-                "cpu_package_power_w",
+                CPU_PACKAGE_POWER,
                 samples.cpu_package_power_w,
                 timestamp_ms,
                 max_skew_ms,
-                POWER_W_RANGE,
             )?,
         })
     }
@@ -315,6 +320,28 @@ mod tests {
     use super::*;
 
     const TS: u64 = 1_760_000_000_000;
+
+    /// `f32` Display prints the shortest string that parses back to the same
+    /// bits, so `to_csv_line` is lossless; pin that for awkward values.
+    #[test]
+    fn f32_display_round_trips_bit_exactly() {
+        let mut bits = vec![
+            0x4380_0001_u32,
+            0x3dcc_cccd,
+            0x3f80_0001,
+            0x4479_ffff,
+            0x0000_0001,
+        ];
+        bits.extend((0..200_000_u32).map(|i| 0x3f80_0000_u32.wrapping_add(i.wrapping_mul(10_007))));
+        for b in bits {
+            let v = f32::from_bits(b);
+            if !v.is_finite() {
+                continue;
+            }
+            let back: f32 = v.to_string().parse().unwrap();
+            assert_eq!(back.to_bits(), v.to_bits(), "{v} did not round-trip");
+        }
+    }
 
     fn r(value: f64) -> Option<Reading> {
         Some(Reading {

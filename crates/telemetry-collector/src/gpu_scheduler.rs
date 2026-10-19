@@ -219,29 +219,9 @@ impl GpuScheduler {
 
     /// Poll GPU state and return the current scheduling decision.
     pub fn poll(&mut self) -> (GpuDecision, Option<GpuSchedulerEvent>) {
-        let snapshot = self.provider.snapshot().unwrap_or(GpuSnapshot {
-            vram_used_mb: 0,
-            vram_total_mb: self.config.vram_mining_ceiling_mb + 4096,
-            gpu_temp_c: None,
-            power_w: None,
-        });
+        let snapshot = self.current_snapshot();
         self.last_snapshot = Some(snapshot.clone());
-
-        // Priority ladder. An unread temperature skips the thermal rungs —
-        // identical to the previous 0 °C behaviour for the safety decision,
-        // but no longer recorded as a real reading. Whether unknown GPU
-        // temperature should fail closed is an open safety decision
-        // (docs/contract-audit-rm-629.md, U-6).
-        let temp = snapshot.gpu_temp_c.filter(|t| t.is_finite());
-        let new_decision = if temp.is_some_and(|t| t >= self.config.thermal_emergency_c) {
-            GpuDecision::MiningPaused(PauseReason::ThermalEmergency)
-        } else if let Some(temp_c) = temp.filter(|t| *t >= self.config.thermal_throttle_c) {
-            GpuDecision::MiningThrottled { temp_c }
-        } else if snapshot.vram_used_mb > self.config.vram_mining_ceiling_mb {
-            GpuDecision::MiningPaused(PauseReason::VramPressure)
-        } else {
-            GpuDecision::MiningAllowed
-        };
+        let new_decision = self.decide(&snapshot);
 
         let changed = new_decision != self.current_decision;
         let cooldown_met = self.last_transition.elapsed() >= self.config.transition_cooldown;
@@ -264,6 +244,34 @@ impl GpuScheduler {
         };
 
         (self.current_decision.clone(), event)
+    }
+
+    /// Provider snapshot, or a no-sensor placeholder when NVML returned nothing.
+    fn current_snapshot(&self) -> GpuSnapshot {
+        self.provider.snapshot().unwrap_or(GpuSnapshot {
+            vram_used_mb: 0,
+            vram_total_mb: self.config.vram_mining_ceiling_mb.saturating_add(4096),
+            gpu_temp_c: None,
+            power_w: None,
+        })
+    }
+
+    /// Priority ladder. An unread temperature skips the thermal rungs —
+    /// identical to the previous 0 °C behaviour for the safety decision,
+    /// but no longer recorded as a real reading. Whether unknown GPU
+    /// temperature should fail closed is an open safety decision
+    /// (docs/contract-audit-rm-629.md, U-6).
+    fn decide(&self, snapshot: &GpuSnapshot) -> GpuDecision {
+        let temp = snapshot.gpu_temp_c.filter(|t| t.is_finite());
+        if temp.is_some_and(|t| t >= self.config.thermal_emergency_c) {
+            GpuDecision::MiningPaused(PauseReason::ThermalEmergency)
+        } else if let Some(temp_c) = temp.filter(|t| *t >= self.config.thermal_throttle_c) {
+            GpuDecision::MiningThrottled { temp_c }
+        } else if snapshot.vram_used_mb > self.config.vram_mining_ceiling_mb {
+            GpuDecision::MiningPaused(PauseReason::VramPressure)
+        } else {
+            GpuDecision::MiningAllowed
+        }
     }
 
     fn make_event(&self, snapshot: &GpuSnapshot) -> GpuSchedulerEvent {
