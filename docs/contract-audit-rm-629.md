@@ -50,7 +50,7 @@ At the **artifact** level the CSV projection itself is **missing by design**. Th
 
 | Contract rule (vahtisiru) | Quarry copy | Status |
 | --- | --- | --- |
-| Exact trimmed header, extra column = mismatch (`docs/telemetry_csv.md:24-29`, `src/telemetry_csv.rs:172-183`) | `csv_contract::HEADER` + `parse_csv` (`csv_contract.rs:26`, `:282`). Golden test `golden_header_bytes` | Match |
+| Exact trimmed header, extra column = mismatch (`docs/telemetry_csv.md:24-29`, `src/telemetry_csv.rs:172-183`) | `csv_contract::HEADER` + `parse_csv` (`csv_contract.rs:26`, `:278`). Golden test `golden_header_bytes` | Match |
 | Empty input is an error (`src/telemetry_csv.rs:174`) | `CsvError::Empty` | Match (fixture `empty.csv`) |
 | Whitespace lines ignored, not skipped (`docs/telemetry_csv.md:53`) | `parse_csv` | Match (fixture `whitespace_lines.csv`) |
 | Short / extra / non-numeric / NaN / ±inf / non-`u64` timestamp rows skipped and counted (`src/telemetry_csv.rs:187-223`) | `parse_csv` | Match (fixture `malformed_rows.csv`: 3 rows, 7 skipped) |
