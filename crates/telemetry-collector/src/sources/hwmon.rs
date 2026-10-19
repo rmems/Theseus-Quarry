@@ -3,9 +3,10 @@
 //! sysfs hwmon `temp*_input` is **integer millidegrees Celsius**
 //! (Linux `Documentation/hwmon/sysfs-interface.rst`). Channels are resolved by
 //! their `temp*_label` (`Tctl`, `Tccd1`, `Tccd2`) rather than by index, because
-//! the index→label mapping differs across k10temp CPU families. If a label
-//! file is absent the documented legacy index is used as a fallback; that
-//! fallback is unverified on the workstation (audit U-3, issue #15 style).
+//! the index→label mapping differs across k10temp CPU families. Only when the
+//! chip publishes no `temp*_label` files at all is the documented legacy index
+//! used as a fallback; a labeled chip missing a label reports that channel as
+//! absent. The fallback is unverified on the workstation (audit U-3).
 
 use super::TelemetryRecord;
 use mining_telemetry_core::host_hw;
