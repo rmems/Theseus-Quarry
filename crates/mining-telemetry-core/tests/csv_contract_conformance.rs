@@ -34,7 +34,12 @@ fn ok(name: &str) -> LoadResult {
 
 #[test]
 fn audited_commit_is_pinned() {
-    assert_eq!(AUDITED_CONTRACT_COMMIT.len(), 40);
+    // Bumping the audited vahtisiru commit must be a deliberate, reviewed
+    // change to this test as well, not a silent edit of the constant.
+    assert_eq!(
+        AUDITED_CONTRACT_COMMIT,
+        "4feb196b53509461ceb9b1e7f9a6dd35e67db280"
+    );
 }
 
 #[test]
