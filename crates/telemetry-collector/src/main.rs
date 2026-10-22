@@ -108,16 +108,7 @@ async fn flush_record(w: &mut writer::JsonlWriter, rec: sources::TelemetryRecord
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
-
-    let args = Args::parse();
+fn validate_thermal_args(args: &Args) -> anyhow::Result<()> {
     anyhow::ensure!(
         args.thermal_throttle.is_finite() && args.thermal_emergency.is_finite(),
         "Thermal thresholds must be finite numbers"
@@ -128,7 +119,141 @@ async fn main() -> anyhow::Result<()> {
         args.thermal_throttle,
         args.thermal_emergency
     );
+    Ok(())
+}
 
+struct HttpEndpoints {
+    bzminer: String,
+    onezerominer: String,
+    xmrig: String,
+    dynex: String,
+    qubic: String,
+}
+
+impl HttpEndpoints {
+    fn from_args(args: &Args) -> Self {
+        Self {
+            bzminer: format!("http://127.0.0.1:{}/", args.kaspa_api_port),
+            onezerominer: format!("http://127.0.0.1:{}/", args.dynex_api_port),
+            xmrig: format!("http://127.0.0.1:{}/", args.monero_api_port),
+            dynex: format!(
+                "{}/getheight",
+                args.dynex_node_rpc_url.trim_end_matches('/')
+            ),
+            qubic: format!(
+                "{}/tick-info",
+                args.qubic_node_api_url.trim_end_matches('/')
+            ),
+        }
+    }
+}
+
+async fn write_gpu_sched_event(
+    w: &mut writer::JsonlWriter,
+    event: &mining_telemetry_core::GpuSchedulerEvent,
+) {
+    let env = mining_telemetry_core::envelope_from_gpu_sched("collector", event);
+    if let Err(e) = w.write_envelope(&env).await {
+        warn!(source = "collector", error = %e, "gpu_sched write failed");
+    } else {
+        debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
+    }
+}
+
+fn log_gpu_decision(decision: &gpu_scheduler::GpuDecision) {
+    match decision {
+        gpu_scheduler::GpuDecision::MiningPaused(reason) => {
+            warn!(?reason, "GPU mining safety limit exceeded");
+        }
+        gpu_scheduler::GpuDecision::MiningThrottled { temp_c } => {
+            warn!(temp_c, "GPU mining thermal throttle active");
+        }
+        gpu_scheduler::GpuDecision::MiningAllowed => {}
+    }
+}
+
+fn sync_miner_governor(
+    governor: &mut process_governor::ProcessGovernor,
+    should_pause: bool,
+    currently_paused: &mut bool,
+) {
+    governor.is_emergency = should_pause;
+    if should_pause {
+        if !*currently_paused {
+            warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
+            *currently_paused = true;
+        }
+        governor.suspend_miners();
+        return;
+    }
+    if !*currently_paused && !governor.has_pending_resumes() {
+        return;
+    }
+    if *currently_paused {
+        info!("GPU safety limits cleared (thermal/VRAM): Resuming miners...");
+    }
+    if governor.resume_miners() {
+        *currently_paused = false;
+    } else {
+        warn!("Some miners failed to resume; will retry next tick.");
+    }
+}
+
+fn apply_startup_gpu_state(
+    governor: &mut process_governor::ProcessGovernor,
+    decision: &gpu_scheduler::GpuDecision,
+) {
+    if decision.is_paused() {
+        warn!("Initial state is thermal emergency / VRAM pressure. Suspending known miners...");
+        governor.is_emergency = true;
+        governor.suspend_miners();
+        return;
+    }
+    info!(
+        "Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs..."
+    );
+    if !governor.resume_all_known_miners() {
+        warn!("Some miners failed to resume on startup; will retry next tick.");
+    }
+}
+
+async fn poll_and_flush_sources(
+    w: &mut writer::JsonlWriter,
+    client: &reqwest::Client,
+    args: &Args,
+    endpoints: &HttpEndpoints,
+    rapl: &sources::rapl::RaplState,
+) {
+    let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(args.interval);
+    let (
+        monero_node_rec,
+        dynex_node_rec,
+        quai_rec,
+        qubic_rec,
+        bzminer_rec,
+        monero_miner_rec,
+        onezerominer_rec,
+    ) = tokio::join!(
+        sources::monero::poll(client, &args.monero_node_rpc_url, probe_budget),
+        sources::dynex::poll(client, &endpoints.dynex),
+        sources::quai::poll(client, &args.quai_node_rpc_url, probe_budget),
+        sources::qubic::poll(client, &endpoints.qubic),
+        sources::bzminer::poll(client, &endpoints.bzminer, "kaspa"),
+        sources::monero_miner::poll(client, &endpoints.xmrig, "monero", args.monero_miner,),
+        sources::onezerominer::poll(client, &endpoints.onezerominer, "dynex", probe_budget),
+    );
+    flush_record(w, monero_node_rec).await;
+    flush_record(w, dynex_node_rec).await;
+    flush_record(w, quai_rec).await;
+    flush_record(w, qubic_rec).await;
+    flush_record(w, bzminer_rec).await;
+    flush_record(w, monero_miner_rec).await;
+    flush_record(w, onezerominer_rec).await;
+    flush_record(w, sources::hwmon::poll()).await;
+    flush_record(w, rapl.poll()).await;
+}
+
+async fn run_collector(mut args: Args) -> anyhow::Result<()> {
     let data_dir = shellexpand::tilde(&args.data_dir).into_owned();
     info!(
         data_dir = %data_dir,
@@ -158,123 +283,32 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     });
     let tick = Duration::from_secs(args.interval);
+    let endpoints = HttpEndpoints::from_args(&args);
+    let mut governor =
+        process_governor::ProcessGovernor::new(std::mem::take(&mut args.governed_miners));
 
-    let bzminer_endpoint = format!("http://127.0.0.1:{}/", args.kaspa_api_port);
-    let onezerominer_endpoint = format!("http://127.0.0.1:{}/", args.dynex_api_port);
-    let xmrig_endpoint = format!("http://127.0.0.1:{}/", args.monero_api_port);
-    let dynex_endpoint = format!(
-        "{}/getheight",
-        args.dynex_node_rpc_url.trim_end_matches('/')
-    );
-    let qubic_endpoint = format!(
-        "{}/tick-info",
-        args.qubic_node_api_url.trim_end_matches('/')
-    );
-
-    let mut governor = process_governor::ProcessGovernor::new(args.governed_miners);
-
-    // Initial GPU safety check before startup recovery
-    let (decision, event) = gpu_sched.poll();
-    let mut currently_paused = decision.is_paused();
-
-    if currently_paused {
-        warn!("Initial state is thermal emergency / VRAM pressure. Suspending known miners...");
-        governor.is_emergency = true;
-        governor.suspend_miners();
-    } else {
-        info!(
-            "Initial state is below the emergency pause threshold. Resuming all known miners to clear stale SIGSTOPs..."
-        );
-        // Failed resumes stay in paused_processes; the main loop retries while mining is allowed.
-        if !governor.resume_all_known_miners() {
-            warn!("Some miners failed to resume on startup; will retry next tick.");
-        }
-    }
+    let (startup_decision, startup_event) = gpu_sched.poll();
+    let mut currently_paused = startup_decision.is_paused();
+    apply_startup_gpu_state(&mut governor, &startup_decision);
 
     #[cfg(unix)]
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .expect("Failed to create SIGTERM listener");
 
-    if let Some(event) = event {
-        let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
-        if let Err(e) = w.write_envelope(&env).await {
-            warn!(source = "collector", error = %e, "gpu_sched write failed");
-        } else {
-            debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
-        }
+    if let Some(event) = startup_event {
+        write_gpu_sched_event(&mut w, &event).await;
     }
 
     loop {
         let (decision, gpu_event) = gpu_sched.poll();
-        match decision {
-            gpu_scheduler::GpuDecision::MiningPaused(ref reason) => {
-                warn!(?reason, "GPU mining safety limit exceeded");
-            }
-            gpu_scheduler::GpuDecision::MiningThrottled { temp_c } => {
-                warn!(temp_c, "GPU mining thermal throttle active");
-            }
-            gpu_scheduler::GpuDecision::MiningAllowed => {}
-        }
-
-        let should_pause = decision.is_paused();
-        governor.is_emergency = should_pause;
-        if should_pause {
-            if !currently_paused {
-                warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
-                currently_paused = true;
-            }
-            governor.suspend_miners();
-        } else {
-            // Drain tracked pauses when mining is allowed (emergency recovery + startup retries).
-            if currently_paused || governor.has_pending_resumes() {
-                if currently_paused {
-                    info!("GPU safety limits cleared (thermal/VRAM): Resuming miners...");
-                }
-                if governor.resume_miners() {
-                    currently_paused = false;
-                } else {
-                    warn!("Some miners failed to resume; will retry next tick.");
-                }
-            }
-        }
+        log_gpu_decision(&decision);
+        sync_miner_governor(&mut governor, decision.is_paused(), &mut currently_paused);
 
         if let Some(event) = gpu_event {
-            let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
-            if let Err(e) = w.write_envelope(&env).await {
-                warn!(source = "collector", error = %e, "gpu_sched write failed");
-            } else {
-                debug!(source = "collector", stem = %env.stem, "wrote gpu_sched envelope");
-            }
+            write_gpu_sched_event(&mut w, &event).await;
         }
 
-        let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(args.interval);
-
-        let (
-            monero_node_rec,
-            dynex_node_rec,
-            quai_rec,
-            qubic_rec,
-            bzminer_rec,
-            monero_miner_rec,
-            onezerominer_rec,
-        ) = tokio::join!(
-            sources::monero::poll(&client, &args.monero_node_rpc_url, probe_budget),
-            sources::dynex::poll(&client, &dynex_endpoint),
-            sources::quai::poll(&client, &args.quai_node_rpc_url, probe_budget),
-            sources::qubic::poll(&client, &qubic_endpoint),
-            sources::bzminer::poll(&client, &bzminer_endpoint, "kaspa"),
-            sources::monero_miner::poll(&client, &xmrig_endpoint, "monero", args.monero_miner,),
-            sources::onezerominer::poll(&client, &onezerominer_endpoint, "dynex", probe_budget),
-        );
-        flush_record(&mut w, monero_node_rec).await;
-        flush_record(&mut w, dynex_node_rec).await;
-        flush_record(&mut w, quai_rec).await;
-        flush_record(&mut w, qubic_rec).await;
-        flush_record(&mut w, bzminer_rec).await;
-        flush_record(&mut w, monero_miner_rec).await;
-        flush_record(&mut w, onezerominer_rec).await;
-        flush_record(&mut w, sources::hwmon::poll()).await;
-        flush_record(&mut w, rapl.poll()).await;
+        poll_and_flush_sources(&mut w, &client, &args, &endpoints, &rapl).await;
 
         #[cfg(not(unix))]
         let sigterm_fut = std::future::pending::<()>();
@@ -295,4 +329,18 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    let args = Args::parse();
+    validate_thermal_args(&args)?;
+    run_collector(args).await
 }
