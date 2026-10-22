@@ -32,6 +32,17 @@ pub(crate) struct EnergySample {
     pub at: Instant,
 }
 
+/// Energy consumed between two counter values (µJ). A backwards counter is a
+/// wrap only if we know the range and the previous value was inside it;
+/// otherwise it is a reset → `None`.
+fn energy_delta_uj(prev_uj: u64, now_uj: u64, max_energy_range_uj: Option<u64>) -> Option<u64> {
+    if now_uj >= prev_uj {
+        return Some(now_uj - prev_uj);
+    }
+    let range = max_energy_range_uj.filter(|&r| prev_uj <= r)?;
+    (range - prev_uj).checked_add(now_uj)
+}
+
 /// Pure delta → watts. `None` means "no trustworthy reading this tick".
 pub(crate) fn power_from_delta(
     prev: Option<EnergySample>,
@@ -43,17 +54,7 @@ pub(crate) fn power_from_delta(
     if dt <= 0.0 {
         return None;
     }
-    let delta_uj = if now.energy_uj >= prev.energy_uj {
-        now.energy_uj - prev.energy_uj
-    } else {
-        // Counter went backwards: a wrap only if we know the range and the
-        // previous value was inside it; otherwise a reset → drop.
-        let range = max_energy_range_uj?;
-        if prev.energy_uj > range {
-            return None;
-        }
-        (range - prev.energy_uj).checked_add(now.energy_uj)?
-    };
+    let delta_uj = energy_delta_uj(prev.energy_uj, now.energy_uj, max_energy_range_uj)?;
     let watts = (delta_uj as f64 / 1_000_000.0) / dt;
     (watts.is_finite() && (0.0..=MAX_PLAUSIBLE_W).contains(&watts)).then_some(watts)
 }
