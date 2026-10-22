@@ -225,17 +225,19 @@ struct PollTickContext<'a> {
     rapl: &'a sources::rapl::RaplState,
 }
 
-async fn poll_and_flush_sources(ctx: &mut PollTickContext<'_>) {
+type MinerPollBatch = (
+    sources::TelemetryRecord,
+    sources::TelemetryRecord,
+    sources::TelemetryRecord,
+    sources::TelemetryRecord,
+    sources::TelemetryRecord,
+    sources::TelemetryRecord,
+    sources::TelemetryRecord,
+);
+
+async fn poll_mining_sources(ctx: &PollTickContext<'_>) -> MinerPollBatch {
     let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(ctx.args.interval);
-    let (
-        monero_node_rec,
-        dynex_node_rec,
-        quai_rec,
-        qubic_rec,
-        bzminer_rec,
-        monero_miner_rec,
-        onezerominer_rec,
-    ) = tokio::join!(
+    tokio::join!(
         sources::monero::poll(ctx.client, &ctx.args.monero_node_rpc_url, probe_budget),
         sources::dynex::poll(ctx.client, &ctx.endpoints.dynex),
         sources::quai::poll(ctx.client, &ctx.args.quai_node_rpc_url, probe_budget),
@@ -253,19 +255,50 @@ async fn poll_and_flush_sources(ctx: &mut PollTickContext<'_>) {
             "dynex",
             probe_budget
         ),
-    );
-    flush_record(ctx.writer, monero_node_rec).await;
-    flush_record(ctx.writer, dynex_node_rec).await;
-    flush_record(ctx.writer, quai_rec).await;
-    flush_record(ctx.writer, qubic_rec).await;
-    flush_record(ctx.writer, bzminer_rec).await;
-    flush_record(ctx.writer, monero_miner_rec).await;
-    flush_record(ctx.writer, onezerominer_rec).await;
+    )
+}
+
+async fn flush_mining_batch(w: &mut writer::JsonlWriter, batch: MinerPollBatch) {
+    let (
+        monero_node_rec,
+        dynex_node_rec,
+        quai_rec,
+        qubic_rec,
+        bzminer_rec,
+        monero_miner_rec,
+        onezerominer_rec,
+    ) = batch;
+    flush_record(w, monero_node_rec).await;
+    flush_record(w, dynex_node_rec).await;
+    flush_record(w, quai_rec).await;
+    flush_record(w, qubic_rec).await;
+    flush_record(w, bzminer_rec).await;
+    flush_record(w, monero_miner_rec).await;
+    flush_record(w, onezerominer_rec).await;
+}
+
+async fn poll_and_flush_sources(ctx: &mut PollTickContext<'_>) {
+    let batch = poll_mining_sources(ctx).await;
+    flush_mining_batch(ctx.writer, batch).await;
     flush_record(ctx.writer, sources::hwmon::poll()).await;
     flush_record(ctx.writer, ctx.rapl.poll()).await;
 }
 
-async fn run_collector(mut args: Args) -> anyhow::Result<()> {
+struct CollectorState {
+    args: Args,
+    client: reqwest::Client,
+    writer: writer::JsonlWriter,
+    rapl: sources::rapl::RaplState,
+    gpu_sched: gpu_scheduler::GpuScheduler,
+    governor: process_governor::ProcessGovernor,
+    endpoints: HttpEndpoints,
+    tick: Duration,
+    currently_paused: bool,
+    #[cfg(unix)]
+    sigterm: tokio::signal::unix::Signal,
+}
+
+async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
     let data_dir = shellexpand::tilde(&args.data_dir).into_owned();
     info!(
         data_dir = %data_dir,
@@ -287,7 +320,7 @@ async fn run_collector(mut args: Args) -> anyhow::Result<()> {
     let client = reqwest::Client::builder()
         .timeout(sources::http_poll::CLIENT_REQUEST_TIMEOUT)
         .build()?;
-    let mut w = writer::JsonlWriter::new(&data_dir);
+    let mut writer = writer::JsonlWriter::new(&data_dir);
     let rapl = sources::rapl::RaplState::new();
     let mut gpu_sched = gpu_scheduler::GpuScheduler::new(gpu_scheduler::GpuSchedulerConfig {
         thermal_throttle_c: args.thermal_throttle,
@@ -300,32 +333,52 @@ async fn run_collector(mut args: Args) -> anyhow::Result<()> {
         process_governor::ProcessGovernor::new(std::mem::take(&mut args.governed_miners));
 
     let (startup_decision, startup_event) = gpu_sched.poll();
-    let mut currently_paused = startup_decision.is_paused();
+    let currently_paused = startup_decision.is_paused();
     apply_startup_gpu_state(&mut governor, &startup_decision);
 
-    #[cfg(unix)]
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .expect("Failed to create SIGTERM listener");
-
     if let Some(event) = startup_event {
-        write_gpu_sched_event(&mut w, &event).await;
+        write_gpu_sched_event(&mut writer, &event).await;
     }
 
+    #[cfg(unix)]
+    let sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("Failed to create SIGTERM listener");
+
+    Ok(CollectorState {
+        args,
+        client,
+        writer,
+        rapl,
+        gpu_sched,
+        governor,
+        endpoints,
+        tick,
+        currently_paused,
+        #[cfg(unix)]
+        sigterm,
+    })
+}
+
+async fn run_poll_loop(state: &mut CollectorState) -> anyhow::Result<()> {
     loop {
-        let (decision, gpu_event) = gpu_sched.poll();
+        let (decision, gpu_event) = state.gpu_sched.poll();
         log_gpu_decision(&decision);
-        sync_miner_governor(&mut governor, decision.is_paused(), &mut currently_paused);
+        sync_miner_governor(
+            &mut state.governor,
+            decision.is_paused(),
+            &mut state.currently_paused,
+        );
 
         if let Some(event) = gpu_event {
-            write_gpu_sched_event(&mut w, &event).await;
+            write_gpu_sched_event(&mut state.writer, &event).await;
         }
 
         let mut tick_ctx = PollTickContext {
-            writer: &mut w,
-            client: &client,
-            args: &args,
-            endpoints: &endpoints,
-            rapl: &rapl,
+            writer: &mut state.writer,
+            client: &state.client,
+            args: &state.args,
+            endpoints: &state.endpoints,
+            rapl: &state.rapl,
         };
         poll_and_flush_sources(&mut tick_ctx).await;
 
@@ -333,10 +386,10 @@ async fn run_collector(mut args: Args) -> anyhow::Result<()> {
         let sigterm_fut = std::future::pending::<()>();
 
         #[cfg(unix)]
-        let sigterm_fut = sigterm.recv();
+        let sigterm_fut = state.sigterm.recv();
 
         tokio::select! {
-            _ = tokio::time::sleep(tick) => {}
+            _ = tokio::time::sleep(state.tick) => {}
             _ = tokio::signal::ctrl_c() => {
                 info!("Received SIGINT, shutting down...");
                 break;
@@ -348,6 +401,11 @@ async fn run_collector(mut args: Args) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+async fn run_collector(args: Args) -> anyhow::Result<()> {
+    let mut state = init_collector(args).await?;
+    run_poll_loop(&mut state).await
 }
 
 #[tokio::main]
