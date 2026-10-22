@@ -290,29 +290,29 @@ pub fn parse_csv(contents: &str) -> Result<LoadResult, CsvError> {
     }
     let mut rows = Vec::new();
     let mut skipped = 0usize;
-    for raw in lines {
-        let line = raw.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let f: Vec<&str> = line.split(',').collect();
-        let parsed = (f.len() == FIELD_COUNT)
-            .then(|| {
-                Some(ContractRow {
-                    timestamp_ms: f[0].parse::<u64>().ok()?,
-                    gpu_temp_c: parse_finite_f32(f[1])?,
-                    gpu_power_w: parse_finite_f32(f[2])?,
-                    cpu_tctl_c: parse_finite_f32(f[3])?,
-                    cpu_package_power_w: parse_finite_f32(f[4])?,
-                })
-            })
-            .flatten();
-        match parsed {
+    for line in lines.map(str::trim).filter(|l| !l.is_empty()) {
+        match parse_row(line) {
             Some(row) => rows.push(row),
             None => skipped += 1,
         }
     }
     Ok(LoadResult { rows, skipped })
+}
+
+/// One trimmed, non-blank data line → row; `None` if the field count is wrong
+/// or any field fails to parse (fields are not individually trimmed).
+fn parse_row(line: &str) -> Option<ContractRow> {
+    let f: Vec<&str> = line.split(',').collect();
+    if f.len() != FIELD_COUNT {
+        return None;
+    }
+    Some(ContractRow {
+        timestamp_ms: f[0].parse::<u64>().ok()?,
+        gpu_temp_c: parse_finite_f32(f[1])?,
+        gpu_power_w: parse_finite_f32(f[2])?,
+        cpu_tctl_c: parse_finite_f32(f[3])?,
+        cpu_package_power_w: parse_finite_f32(f[4])?,
+    })
 }
 
 #[cfg(test)]

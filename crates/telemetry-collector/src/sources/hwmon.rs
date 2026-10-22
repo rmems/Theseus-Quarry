@@ -118,26 +118,23 @@ mod tests {
 
     #[test]
     fn label_lookup_beats_index() {
-        let dir = std::env::temp_dir().join(format!("theseus_hwmon_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         // Tctl lives on temp2 here; legacy index temp1 holds something else.
         std::fs::write(dir.join("temp1_input"), "99000\n").unwrap();
         std::fs::write(dir.join("temp1_label"), "Tccd1\n").unwrap();
         std::fs::write(dir.join("temp2_input"), "61500\n").unwrap();
         std::fs::write(dir.join("temp2_label"), "Tctl\n").unwrap();
-        assert_eq!(read_channel(&dir, "Tctl", "temp1_input"), Some(61.5));
-        assert_eq!(read_channel(&dir, "Tccd1", "temp3_input"), Some(99.0));
+        assert_eq!(read_channel(dir, "Tctl", "temp1_input"), Some(61.5));
+        assert_eq!(read_channel(dir, "Tccd1", "temp3_input"), Some(99.0));
         // No label, no legacy file → None (not 0.0).
-        assert_eq!(read_channel(&dir, "Tccd2", "temp4_input"), None);
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read_channel(dir, "Tccd2", "temp4_input"), None);
     }
 
     #[test]
     fn labeled_chip_never_falls_back_to_legacy_index() {
-        let dir = std::env::temp_dir().join(format!("theseus_hwmon_lbl_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         // 8-core part: Tctl and Tccd1 are labeled, there is no Tccd2, and the
         // legacy Tccd2 index temp4 holds an unrelated sensor.
         std::fs::write(dir.join("temp1_input"), "61500\n").unwrap();
@@ -145,17 +142,14 @@ mod tests {
         std::fs::write(dir.join("temp3_input"), "58000\n").unwrap();
         std::fs::write(dir.join("temp3_label"), "Tccd1\n").unwrap();
         std::fs::write(dir.join("temp4_input"), "35000\n").unwrap();
-        assert_eq!(read_channel(&dir, "Tccd2", "temp4_input"), None);
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read_channel(dir, "Tccd2", "temp4_input"), None);
     }
 
     #[test]
     fn unlabeled_chip_uses_legacy_index() {
-        let dir = std::env::temp_dir().join(format!("theseus_hwmon_nolbl_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         std::fs::write(dir.join("temp1_input"), "61500\n").unwrap();
-        assert_eq!(read_channel(&dir, "Tctl", "temp1_input"), Some(61.5));
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read_channel(dir, "Tctl", "temp1_input"), Some(61.5));
     }
 }
