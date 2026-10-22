@@ -8,14 +8,14 @@ use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-async fn wiremock_get_url(path: &str, response: ResponseTemplate) -> String {
+async fn wiremock_get_url(route: &str, response: ResponseTemplate) -> String {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(path))
+        .and(path(route))
         .respond_with(response)
         .mount(&server)
         .await;
-    format!("{}{}", server.uri(), path)
+    format!("{}{}", server.uri(), route)
 }
 
 async fn assert_get_json_skipped(url: &str, timeout: Duration) {
