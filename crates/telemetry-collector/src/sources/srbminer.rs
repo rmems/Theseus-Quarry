@@ -26,11 +26,7 @@ async fn try_poll(
     let url = format!("{base}/");
     let resp = http_poll::get_json_object(
         client,
-        http_poll::HttpJsonRequest {
-            adapter: "srbminer",
-            url: &url,
-            timeout: CLIENT_REQUEST_TIMEOUT,
-        },
+        http_poll::json_request("srbminer", &url, CLIENT_REQUEST_TIMEOUT),
     )
     .await?;
     let parsed = parse_status(&resp)?;

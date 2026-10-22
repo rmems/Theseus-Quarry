@@ -18,6 +18,15 @@ use std::time::Duration;
 
 pub use budget::ProbeBudget;
 pub use fetch::{HttpJsonRequest, get_json_object, post_json_object};
+
+/// Build a bounded JSON HTTP request descriptor for miner/node adapters.
+pub fn json_request(adapter: &'static str, url: &str, timeout: Duration) -> HttpJsonRequest<'_> {
+    HttpJsonRequest {
+        adapter,
+        url,
+        timeout,
+    }
+}
 pub use loopback::validate_node_rpc_urls;
 
 /// Maximum response body size read from miner/node HTTP before JSON parse.

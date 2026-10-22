@@ -1,7 +1,7 @@
 use super::loopback::{is_loopback_host, validate_node_rpc_url};
 use super::{
-    CLIENT_REQUEST_TIMEOUT, HttpJsonRequest, MAX_RESPONSE_BODY_BYTES, ProbeBudget,
-    content_type_allows_json, get_json_object,
+    CLIENT_REQUEST_TIMEOUT, MAX_RESPONSE_BODY_BYTES, ProbeBudget, content_type_allows_json,
+    get_json_object, json_request,
 };
 use reqwest::Client;
 use std::time::Duration;
@@ -52,11 +52,7 @@ async fn rejects_oversized_body() {
     assert!(
         get_json_object(
             &client,
-            HttpJsonRequest {
-                adapter: "test_adapter",
-                url: &url,
-                timeout: Duration::from_secs(5),
-            },
+            json_request("test_adapter", &url, Duration::from_secs(5))
         )
         .await
         .is_none()
@@ -81,11 +77,7 @@ async fn rejects_non_json_content_type() {
     assert!(
         get_json_object(
             &client,
-            HttpJsonRequest {
-                adapter: "test_adapter",
-                url: &url,
-                timeout: Duration::from_secs(2),
-            },
+            json_request("test_adapter", &url, Duration::from_secs(2))
         )
         .await
         .is_none()
@@ -118,11 +110,7 @@ async fn allows_missing_content_type_when_json_object() {
     let url = format!("http://{addr}/");
     let v = get_json_object(
         &client,
-        HttpJsonRequest {
-            adapter: "test_adapter",
-            url: &url,
-            timeout: Duration::from_secs(2),
-        },
+        json_request("test_adapter", &url, Duration::from_secs(2)),
     )
     .await
     .expect("expected JSON");
@@ -148,11 +136,7 @@ async fn slow_body_times_out_without_unbounded_wait() {
     assert!(
         get_json_object(
             &client,
-            HttpJsonRequest {
-                adapter: "test_adapter",
-                url: &url,
-                timeout: Duration::from_millis(500),
-            },
+            json_request("test_adapter", &url, Duration::from_millis(500)),
         )
         .await
         .is_none()

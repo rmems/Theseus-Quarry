@@ -26,11 +26,7 @@ async fn try_poll(
     let timeout = budget.request_timeout()?;
     let mining_resp = http_poll::post_json_object(
         client,
-        http_poll::HttpJsonRequest {
-            adapter: "monero",
-            url: endpoint,
-            timeout,
-        },
+        http_poll::json_request("monero", endpoint, timeout),
         &mining_body,
     )
     .await?;
@@ -38,11 +34,7 @@ async fn try_poll(
     let timeout = budget.request_timeout()?;
     let info_resp = http_poll::post_json_object(
         client,
-        http_poll::HttpJsonRequest {
-            adapter: "monero",
-            url: endpoint,
-            timeout,
-        },
+        http_poll::json_request("monero", endpoint, timeout),
         &info_body,
     )
     .await?;

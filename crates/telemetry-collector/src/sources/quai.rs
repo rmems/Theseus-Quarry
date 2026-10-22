@@ -29,11 +29,7 @@ async fn try_poll(
         };
         let Some(val) = http_poll::post_json_object(
             client,
-            http_poll::HttpJsonRequest {
-                adapter: "quai",
-                url: endpoint,
-                timeout,
-            },
+            http_poll::json_request("quai", endpoint, timeout),
             payload,
         )
         .await

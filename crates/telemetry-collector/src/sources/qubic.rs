@@ -15,11 +15,7 @@ async fn try_poll(
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let resp = http_poll::get_json_object(
         client,
-        http_poll::HttpJsonRequest {
-            adapter: "qubic",
-            url: endpoint,
-            timeout: CLIENT_REQUEST_TIMEOUT,
-        },
+        http_poll::json_request("qubic", endpoint, CLIENT_REQUEST_TIMEOUT),
     )
     .await?;
     let tick_info = resp.get("tick_info").unwrap_or(&resp);

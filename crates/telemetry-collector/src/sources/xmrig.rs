@@ -28,11 +28,7 @@ async fn try_poll(
     let url = format!("{base}/1/summary");
     let resp = http_poll::get_json_object(
         client,
-        http_poll::HttpJsonRequest {
-            adapter: "xmrig",
-            url: &url,
-            timeout: CLIENT_REQUEST_TIMEOUT,
-        },
+        http_poll::json_request("xmrig", &url, CLIENT_REQUEST_TIMEOUT),
     )
     .await?;
     let parsed = parse_summary(&resp)?;
