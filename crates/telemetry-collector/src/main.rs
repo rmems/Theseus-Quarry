@@ -172,20 +172,21 @@ fn log_gpu_decision(decision: &gpu_scheduler::GpuDecision) {
     }
 }
 
-fn sync_miner_governor(
+fn pause_miner_governor(
     governor: &mut process_governor::ProcessGovernor,
-    should_pause: bool,
     currently_paused: &mut bool,
 ) {
-    governor.is_emergency = should_pause;
-    if should_pause {
-        if !*currently_paused {
-            warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
-            *currently_paused = true;
-        }
-        governor.suspend_miners();
-        return;
+    if !*currently_paused {
+        warn!("Thermal emergency / VRAM pressure breached: Suspending miners...");
+        *currently_paused = true;
     }
+    governor.suspend_miners();
+}
+
+fn resume_miner_governor_if_needed(
+    governor: &mut process_governor::ProcessGovernor,
+    currently_paused: &mut bool,
+) {
     if !*currently_paused && !governor.has_pending_resumes() {
         return;
     }
@@ -196,6 +197,19 @@ fn sync_miner_governor(
         *currently_paused = false;
     } else {
         warn!("Some miners failed to resume; will retry next tick.");
+    }
+}
+
+fn sync_miner_governor(
+    governor: &mut process_governor::ProcessGovernor,
+    should_pause: bool,
+    currently_paused: &mut bool,
+) {
+    governor.is_emergency = should_pause;
+    if should_pause {
+        pause_miner_governor(governor, currently_paused);
+    } else {
+        resume_miner_governor_if_needed(governor, currently_paused);
     }
 }
 
@@ -298,15 +312,7 @@ struct CollectorState {
     sigterm: tokio::signal::unix::Signal,
 }
 
-async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
-    let data_dir = shellexpand::tilde(&args.data_dir).into_owned();
-    info!(
-        data_dir = %data_dir,
-        interval_secs = args.interval,
-        schema_version = mining_telemetry_core::SCHEMA_VERSION,
-        "telemetry-collector starting"
-    );
-
+fn prepare_data_dir(args: &Args) -> anyhow::Result<String> {
     sources::http_poll::validate_node_rpc_urls(
         args.node_rpc_loopback_only,
         &[
@@ -316,6 +322,17 @@ async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
             ("qubic", args.qubic_node_api_url.as_str()),
         ],
     )?;
+    Ok(shellexpand::tilde(&args.data_dir).into_owned())
+}
+
+async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
+    let data_dir = prepare_data_dir(&args)?;
+    info!(
+        data_dir = %data_dir,
+        interval_secs = args.interval,
+        schema_version = mining_telemetry_core::SCHEMA_VERSION,
+        "telemetry-collector starting"
+    );
 
     let client = reqwest::Client::builder()
         .timeout(sources::http_poll::CLIENT_REQUEST_TIMEOUT)
