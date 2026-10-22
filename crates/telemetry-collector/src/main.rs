@@ -217,14 +217,16 @@ fn apply_startup_gpu_state(
     }
 }
 
-async fn poll_and_flush_sources(
-    w: &mut writer::JsonlWriter,
-    client: &reqwest::Client,
-    args: &Args,
-    endpoints: &HttpEndpoints,
-    rapl: &sources::rapl::RaplState,
-) {
-    let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(args.interval);
+struct PollTickContext<'a> {
+    writer: &'a mut writer::JsonlWriter,
+    client: &'a reqwest::Client,
+    args: &'a Args,
+    endpoints: &'a HttpEndpoints,
+    rapl: &'a sources::rapl::RaplState,
+}
+
+async fn poll_and_flush_sources(ctx: &mut PollTickContext<'_>) {
+    let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(ctx.args.interval);
     let (
         monero_node_rec,
         dynex_node_rec,
@@ -234,23 +236,33 @@ async fn poll_and_flush_sources(
         monero_miner_rec,
         onezerominer_rec,
     ) = tokio::join!(
-        sources::monero::poll(client, &args.monero_node_rpc_url, probe_budget),
-        sources::dynex::poll(client, &endpoints.dynex),
-        sources::quai::poll(client, &args.quai_node_rpc_url, probe_budget),
-        sources::qubic::poll(client, &endpoints.qubic),
-        sources::bzminer::poll(client, &endpoints.bzminer, "kaspa"),
-        sources::monero_miner::poll(client, &endpoints.xmrig, "monero", args.monero_miner,),
-        sources::onezerominer::poll(client, &endpoints.onezerominer, "dynex", probe_budget),
+        sources::monero::poll(ctx.client, &ctx.args.monero_node_rpc_url, probe_budget),
+        sources::dynex::poll(ctx.client, &ctx.endpoints.dynex),
+        sources::quai::poll(ctx.client, &ctx.args.quai_node_rpc_url, probe_budget),
+        sources::qubic::poll(ctx.client, &ctx.endpoints.qubic),
+        sources::bzminer::poll(ctx.client, &ctx.endpoints.bzminer, "kaspa"),
+        sources::monero_miner::poll(
+            ctx.client,
+            &ctx.endpoints.xmrig,
+            "monero",
+            ctx.args.monero_miner,
+        ),
+        sources::onezerominer::poll(
+            ctx.client,
+            &ctx.endpoints.onezerominer,
+            "dynex",
+            probe_budget
+        ),
     );
-    flush_record(w, monero_node_rec).await;
-    flush_record(w, dynex_node_rec).await;
-    flush_record(w, quai_rec).await;
-    flush_record(w, qubic_rec).await;
-    flush_record(w, bzminer_rec).await;
-    flush_record(w, monero_miner_rec).await;
-    flush_record(w, onezerominer_rec).await;
-    flush_record(w, sources::hwmon::poll()).await;
-    flush_record(w, rapl.poll()).await;
+    flush_record(ctx.writer, monero_node_rec).await;
+    flush_record(ctx.writer, dynex_node_rec).await;
+    flush_record(ctx.writer, quai_rec).await;
+    flush_record(ctx.writer, qubic_rec).await;
+    flush_record(ctx.writer, bzminer_rec).await;
+    flush_record(ctx.writer, monero_miner_rec).await;
+    flush_record(ctx.writer, onezerominer_rec).await;
+    flush_record(ctx.writer, sources::hwmon::poll()).await;
+    flush_record(ctx.writer, ctx.rapl.poll()).await;
 }
 
 async fn run_collector(mut args: Args) -> anyhow::Result<()> {
@@ -308,7 +320,14 @@ async fn run_collector(mut args: Args) -> anyhow::Result<()> {
             write_gpu_sched_event(&mut w, &event).await;
         }
 
-        poll_and_flush_sources(&mut w, &client, &args, &endpoints, &rapl).await;
+        let mut tick_ctx = PollTickContext {
+            writer: &mut w,
+            client: &client,
+            args: &args,
+            endpoints: &endpoints,
+            rapl: &rapl,
+        };
+        poll_and_flush_sources(&mut tick_ctx).await;
 
         #[cfg(not(unix))]
         let sigterm_fut = std::future::pending::<()>();
