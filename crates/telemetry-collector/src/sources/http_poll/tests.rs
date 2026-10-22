@@ -8,6 +8,25 @@ use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+async fn wiremock_get_url(path: &str, response: ResponseTemplate) -> String {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(path))
+        .respond_with(response)
+        .mount(&server)
+        .await;
+    format!("{}{}", server.uri(), path)
+}
+
+async fn assert_get_json_skipped(url: &str, timeout: Duration) {
+    let client = Client::builder().build().unwrap();
+    assert!(
+        get_json_object(&client, json_request("test_adapter", url, timeout))
+            .await
+            .is_none()
+    );
+}
+
 #[test]
 fn content_type_json_variants() {
     assert!(content_type_allows_json(None));
@@ -36,52 +55,21 @@ fn validate_node_rpc_rejects_remote_when_enabled() {
 
 #[tokio::test]
 async fn rejects_oversized_body() {
-    let server = MockServer::start().await;
     let huge = "x".repeat(MAX_RESPONSE_BODY_BYTES + 1);
-    Mock::given(method("GET"))
-        .and(path("/big"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(huge))
-        .mount(&server)
-        .await;
-
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap();
-    let url = format!("{}/big", server.uri());
-    assert!(
-        get_json_object(
-            &client,
-            json_request("test_adapter", &url, Duration::from_secs(5))
-        )
-        .await
-        .is_none()
-    );
+    let url = wiremock_get_url("/big", ResponseTemplate::new(200).set_body_string(huge)).await;
+    assert_get_json_skipped(&url, Duration::from_secs(5)).await;
 }
 
 #[tokio::test]
 async fn rejects_non_json_content_type() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/html"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string(r#"{"ok":true}"#),
-        )
-        .mount(&server)
-        .await;
-
-    let client = Client::builder().build().unwrap();
-    let url = format!("{}/html", server.uri());
-    assert!(
-        get_json_object(
-            &client,
-            json_request("test_adapter", &url, Duration::from_secs(2))
-        )
-        .await
-        .is_none()
-    );
+    let url = wiremock_get_url(
+        "/html",
+        ResponseTemplate::new(200)
+            .insert_header("content-type", "text/html")
+            .set_body_string(r#"{"ok":true}"#),
+    )
+    .await;
+    assert_get_json_skipped(&url, Duration::from_secs(2)).await;
 }
 
 #[tokio::test]
@@ -119,28 +107,15 @@ async fn allows_missing_content_type_when_json_object() {
 
 #[tokio::test]
 async fn slow_body_times_out_without_unbounded_wait() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/slow"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_delay(Duration::from_secs(30))
-                .set_body_string(r#"{"ok":true}"#),
-        )
-        .mount(&server)
-        .await;
-
-    let client = Client::builder().build().unwrap();
-    let url = format!("{}/slow", server.uri());
+    let url = wiremock_get_url(
+        "/slow",
+        ResponseTemplate::new(200)
+            .set_delay(Duration::from_secs(30))
+            .set_body_string(r#"{"ok":true}"#),
+    )
+    .await;
     let started = std::time::Instant::now();
-    assert!(
-        get_json_object(
-            &client,
-            json_request("test_adapter", &url, Duration::from_millis(500)),
-        )
-        .await
-        .is_none()
-    );
+    assert_get_json_skipped(&url, Duration::from_millis(500)).await;
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
