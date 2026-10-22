@@ -20,8 +20,16 @@ use mining_telemetry_core::GpuSchedulerEvent;
 pub struct GpuSnapshot {
     pub vram_used_mb: u64,
     pub vram_total_mb: u64,
-    pub gpu_temp_c: f32,
-    pub power_w: f32,
+    /// GPU die temperature (°C). `None` = sensor not read this tick. Never
+    /// zero-filled or fabricated (RM-629 audit, issue #24).
+    pub gpu_temp_c: Option<f32>,
+    /// Board power (W, from NVML milliwatts). `None` = not read this tick.
+    pub power_w: Option<f32>,
+}
+
+/// NVML reports board power in **milliwatts**; the contract column is watts.
+pub fn nvml_milliwatts_to_watts(mw: u32) -> f32 {
+    mw as f32 / 1000.0
 }
 
 /// Scheduler decision.
@@ -103,8 +111,13 @@ impl GpuSnapshotProvider for NvmlProvider {
     fn snapshot(&self) -> Option<GpuSnapshot> {
         let device = self.nvml.device_by_index(0).ok()?;
         let mem = device.memory_info().ok()?;
-        let temp = device.temperature(TemperatureSensor::Gpu).ok().unwrap_or(0) as f32;
-        let power = device.power_usage().ok().unwrap_or(0) as f32 / 1000.0; // mW → W
+        // NVML temperature is whole °C; power is mW. A failed read stays
+        // `None` — a 0 °C / 0 W reading would be fabricated physiology.
+        let temp = device
+            .temperature(TemperatureSensor::Gpu)
+            .ok()
+            .map(|c| c as f32);
+        let power = device.power_usage().ok().map(nvml_milliwatts_to_watts);
 
         Some(GpuSnapshot {
             vram_used_mb: mem.used / (1024 * 1024),
@@ -206,26 +219,9 @@ impl GpuScheduler {
 
     /// Poll GPU state and return the current scheduling decision.
     pub fn poll(&mut self) -> (GpuDecision, Option<GpuSchedulerEvent>) {
-        let snapshot = self.provider.snapshot().unwrap_or(GpuSnapshot {
-            vram_used_mb: 0,
-            vram_total_mb: self.config.vram_mining_ceiling_mb + 4096,
-            gpu_temp_c: 0.0,
-            power_w: 0.0,
-        });
+        let snapshot = self.current_snapshot();
         self.last_snapshot = Some(snapshot.clone());
-
-        // Priority ladder
-        let new_decision = if snapshot.gpu_temp_c >= self.config.thermal_emergency_c {
-            GpuDecision::MiningPaused(PauseReason::ThermalEmergency)
-        } else if snapshot.gpu_temp_c >= self.config.thermal_throttle_c {
-            GpuDecision::MiningThrottled {
-                temp_c: snapshot.gpu_temp_c,
-            }
-        } else if snapshot.vram_used_mb > self.config.vram_mining_ceiling_mb {
-            GpuDecision::MiningPaused(PauseReason::VramPressure)
-        } else {
-            GpuDecision::MiningAllowed
-        };
+        let new_decision = self.decide(&snapshot);
 
         let changed = new_decision != self.current_decision;
         let cooldown_met = self.last_transition.elapsed() >= self.config.transition_cooldown;
@@ -250,19 +246,52 @@ impl GpuScheduler {
         (self.current_decision.clone(), event)
     }
 
+    /// Provider snapshot, or a no-sensor placeholder when NVML returned nothing.
+    fn current_snapshot(&self) -> GpuSnapshot {
+        self.provider.snapshot().unwrap_or(GpuSnapshot {
+            vram_used_mb: 0,
+            vram_total_mb: self.config.vram_mining_ceiling_mb.saturating_add(4096),
+            gpu_temp_c: None,
+            power_w: None,
+        })
+    }
+
+    /// Priority ladder. An unread temperature skips the thermal rungs —
+    /// identical to the previous 0 °C behaviour for the safety decision,
+    /// but no longer recorded as a real reading. Whether unknown GPU
+    /// temperature should fail closed is an open safety decision
+    /// (docs/contract-audit-rm-629.md, U-6).
+    fn decide(&self, snapshot: &GpuSnapshot) -> GpuDecision {
+        let temp = snapshot.gpu_temp_c.filter(|t| t.is_finite());
+        if temp.is_some_and(|t| t >= self.config.thermal_emergency_c) {
+            GpuDecision::MiningPaused(PauseReason::ThermalEmergency)
+        } else if let Some(temp_c) = temp.filter(|t| *t >= self.config.thermal_throttle_c) {
+            GpuDecision::MiningThrottled { temp_c }
+        } else if snapshot.vram_used_mb > self.config.vram_mining_ceiling_mb {
+            GpuDecision::MiningPaused(PauseReason::VramPressure)
+        } else {
+            GpuDecision::MiningAllowed
+        }
+    }
+
     fn make_event(&self, snapshot: &GpuSnapshot) -> GpuSchedulerEvent {
         GpuSchedulerEvent {
             decision: self.current_decision.label().to_string(),
             vram_used_mb: snapshot.vram_used_mb,
             vram_total_mb: snapshot.vram_total_mb,
-            gpu_temp_c: snapshot.gpu_temp_c,
-            power_w: snapshot.power_w,
+            // Non-finite readings are dropped, not serialized (serde_json
+            // would otherwise write `null` and hide the fault).
+            gpu_temp_c: snapshot.gpu_temp_c.filter(|t| t.is_finite()),
+            power_w: snapshot.power_w.filter(|p| p.is_finite()),
             transition_count: self.transition_count,
         }
     }
 }
 
 /// Fallback provider when NVML is unavailable.
+///
+/// Reports no sensor values: it previously fabricated 50 °C / 100 W, which
+/// would have entered the JSONL corpus as real GPU physiology.
 struct FallbackProvider;
 
 impl GpuSnapshotProvider for FallbackProvider {
@@ -270,8 +299,8 @@ impl GpuSnapshotProvider for FallbackProvider {
         Some(GpuSnapshot {
             vram_used_mb: 0,
             vram_total_mb: 16384,
-            gpu_temp_c: 50.0,
-            power_w: 100.0,
+            gpu_temp_c: None,
+            power_w: None,
         })
     }
 }
@@ -301,8 +330,8 @@ mod tests {
         let mut sched = mock_scheduler(GpuSnapshot {
             vram_used_mb: 2000,
             vram_total_mb: 16384,
-            gpu_temp_c: 60.0,
-            power_w: 200.0,
+            gpu_temp_c: Some(60.0),
+            power_w: Some(200.0),
         });
         let (decision, _) = sched.poll();
         assert_eq!(decision, GpuDecision::MiningAllowed);
@@ -313,8 +342,8 @@ mod tests {
         let mut sched = mock_scheduler(GpuSnapshot {
             vram_used_mb: 2000,
             vram_total_mb: 16384,
-            gpu_temp_c: 92.0,
-            power_w: 350.0,
+            gpu_temp_c: Some(92.0),
+            power_w: Some(350.0),
         });
         let (decision, _) = sched.poll();
         assert_eq!(
@@ -328,8 +357,8 @@ mod tests {
         let mut sched = mock_scheduler(GpuSnapshot {
             vram_used_mb: 2000,
             vram_total_mb: 16384,
-            gpu_temp_c: 85.0,
-            power_w: 300.0,
+            gpu_temp_c: Some(85.0),
+            power_w: Some(300.0),
         });
         let (decision, _) = sched.poll();
         assert!(matches!(decision, GpuDecision::MiningThrottled { temp_c } if temp_c == 85.0));
@@ -340,8 +369,8 @@ mod tests {
         let mut sched = mock_scheduler(GpuSnapshot {
             vram_used_mb: 13000,
             vram_total_mb: 16384,
-            gpu_temp_c: 60.0,
-            power_w: 200.0,
+            gpu_temp_c: Some(60.0),
+            power_w: Some(200.0),
         });
         let (decision, _) = sched.poll();
         assert_eq!(
@@ -364,6 +393,56 @@ mod tests {
         assert_eq!(
             GpuDecision::MiningThrottled { temp_c: 85.0 }.label(),
             "throttled"
+        );
+    }
+
+    #[test]
+    fn nvml_power_is_converted_from_milliwatts() {
+        assert_eq!(nvml_milliwatts_to_watts(252_500), 252.5);
+        assert_eq!(nvml_milliwatts_to_watts(0), 0.0);
+    }
+
+    #[test]
+    fn unread_sensors_are_not_fabricated_in_events() {
+        let mut sched = GpuScheduler::new_mock(test_config(), Box::new(FallbackProvider));
+        // Force a heartbeat event.
+        sched.last_heartbeat = Instant::now() - Duration::from_secs(31);
+        let (decision, event) = sched.poll();
+        assert_eq!(decision, GpuDecision::MiningAllowed);
+        let event = event.expect("heartbeat event");
+        assert_eq!(event.gpu_temp_c, None);
+        assert_eq!(event.power_w, None);
+        let env = mining_telemetry_core::envelope_from_gpu_sched("collector", &event);
+        let line = env.to_json_line().unwrap();
+        assert!(!line.contains("gpu_temp_c"), "{line}");
+        assert!(!line.contains("power_w"), "{line}");
+    }
+
+    #[test]
+    fn non_finite_temperature_never_counts_as_cool_reading() {
+        let mut sched = mock_scheduler(GpuSnapshot {
+            vram_used_mb: 2000,
+            vram_total_mb: 16384,
+            gpu_temp_c: Some(f32::NAN),
+            power_w: Some(200.0),
+        });
+        let (decision, _) = sched.poll();
+        // NaN skips the thermal rungs (same as unread); VRAM rung still applies.
+        assert_eq!(decision, GpuDecision::MiningAllowed);
+    }
+
+    #[test]
+    fn thermal_ladder_still_fires_on_real_reading() {
+        let mut sched = mock_scheduler(GpuSnapshot {
+            vram_used_mb: 2000,
+            vram_total_mb: 16384,
+            gpu_temp_c: Some(90.0),
+            power_w: None,
+        });
+        let (decision, _) = sched.poll();
+        assert_eq!(
+            decision,
+            GpuDecision::MiningPaused(PauseReason::ThermalEmergency)
         );
     }
 }

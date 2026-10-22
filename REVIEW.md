@@ -62,6 +62,8 @@ CI (self-hosted `ryzen`) runs fmt, clippy, test, and a **release-profile** colle
 - [ ] **Hashrate units** — store the miner API’s native `hashrate_unit` (do not force MH/s). XMRig/BzMiner/SRBMiner document H/s; OneZero is conservative H/s until live confirm (#15).
 - [ ] **ProcessGovernor** — only track processes we stop; untracked already-stopped miners stay unowned; PID + start_time identity; no SIGCONT to unrelated PIDs.
 - [ ] **Schema** — `schema_version = 1` envelopes only; no free-form dual-compat.
+- [ ] **No fabricated vitals** — unread sensors stay absent (`None`), never `0` or a placeholder; non-finite values are dropped before JSONL. Units: NVML mW → W, hwmon m°C → °C, RAPL µJ/Δt → W.
+- [ ] **CSV contract** — `cargo test -p mining-telemetry-core --test csv_contract_conformance` passes; header still equals vahtisiru `telemetry_csv::HEADER` (see `docs/contract-audit-rm-629.md`).
 - [ ] **SRBMiner** — parsed on `MONERO_API_PORT` via `MONERO_MINER=auto|xmrig|srbminer` (shape sniff or pin). Native H/s. Soft-fail when the body is the other miner.
 
 ## Secrets / non-goals

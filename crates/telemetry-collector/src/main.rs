@@ -137,25 +137,14 @@ async fn main() -> anyhow::Result<()> {
         "telemetry-collector starting"
     );
 
-    sources::http_poll::validate_node_rpc_url(
-        "dynex",
-        &args.dynex_node_rpc_url,
+    sources::http_poll::validate_node_rpc_urls(
         args.node_rpc_loopback_only,
-    )?;
-    sources::http_poll::validate_node_rpc_url(
-        "monero",
-        &args.monero_node_rpc_url,
-        args.node_rpc_loopback_only,
-    )?;
-    sources::http_poll::validate_node_rpc_url(
-        "quai",
-        &args.quai_node_rpc_url,
-        args.node_rpc_loopback_only,
-    )?;
-    sources::http_poll::validate_node_rpc_url(
-        "qubic",
-        &args.qubic_node_api_url,
-        args.node_rpc_loopback_only,
+        &[
+            ("dynex", args.dynex_node_rpc_url.as_str()),
+            ("monero", args.monero_node_rpc_url.as_str()),
+            ("quai", args.quai_node_rpc_url.as_str()),
+            ("qubic", args.qubic_node_api_url.as_str()),
+        ],
     )?;
 
     let client = reqwest::Client::builder()
