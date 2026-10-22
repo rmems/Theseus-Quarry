@@ -17,7 +17,7 @@ mod tests;
 use std::time::Duration;
 
 pub use budget::ProbeBudget;
-pub use fetch::{get_json_object, post_json_object};
+pub use fetch::{HttpJsonRequest, get_json_object, post_json_object};
 pub use loopback::validate_node_rpc_urls;
 
 /// Maximum response body size read from miner/node HTTP before JSON parse.

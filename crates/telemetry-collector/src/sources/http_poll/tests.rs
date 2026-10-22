@@ -1,7 +1,7 @@
 use super::loopback::{is_loopback_host, validate_node_rpc_url};
 use super::{
-    CLIENT_REQUEST_TIMEOUT, MAX_RESPONSE_BODY_BYTES, ProbeBudget, content_type_allows_json,
-    get_json_object,
+    CLIENT_REQUEST_TIMEOUT, HttpJsonRequest, MAX_RESPONSE_BODY_BYTES, ProbeBudget,
+    content_type_allows_json, get_json_object,
 };
 use reqwest::Client;
 use std::time::Duration;
@@ -50,9 +50,16 @@ async fn rejects_oversized_body() {
         .unwrap();
     let url = format!("{}/big", server.uri());
     assert!(
-        get_json_object("test_adapter", &client, &url, Duration::from_secs(5))
-            .await
-            .is_none()
+        get_json_object(
+            &client,
+            HttpJsonRequest {
+                adapter: "test_adapter",
+                url: &url,
+                timeout: Duration::from_secs(5),
+            },
+        )
+        .await
+        .is_none()
     );
 }
 
@@ -72,9 +79,16 @@ async fn rejects_non_json_content_type() {
     let client = Client::builder().build().unwrap();
     let url = format!("{}/html", server.uri());
     assert!(
-        get_json_object("test_adapter", &client, &url, Duration::from_secs(2))
-            .await
-            .is_none()
+        get_json_object(
+            &client,
+            HttpJsonRequest {
+                adapter: "test_adapter",
+                url: &url,
+                timeout: Duration::from_secs(2),
+            },
+        )
+        .await
+        .is_none()
     );
 }
 
@@ -102,9 +116,16 @@ async fn allows_missing_content_type_when_json_object() {
 
     let client = Client::builder().build().unwrap();
     let url = format!("http://{addr}/");
-    let v = get_json_object("test_adapter", &client, &url, Duration::from_secs(2))
-        .await
-        .expect("expected JSON");
+    let v = get_json_object(
+        &client,
+        HttpJsonRequest {
+            adapter: "test_adapter",
+            url: &url,
+            timeout: Duration::from_secs(2),
+        },
+    )
+    .await
+    .expect("expected JSON");
     assert_eq!(v.get("height").and_then(|h| h.as_u64()), Some(42));
 }
 
@@ -125,9 +146,16 @@ async fn slow_body_times_out_without_unbounded_wait() {
     let url = format!("{}/slow", server.uri());
     let started = std::time::Instant::now();
     assert!(
-        get_json_object("test_adapter", &client, &url, Duration::from_millis(500))
-            .await
-            .is_none()
+        get_json_object(
+            &client,
+            HttpJsonRequest {
+                adapter: "test_adapter",
+                url: &url,
+                timeout: Duration::from_millis(500),
+            },
+        )
+        .await
+        .is_none()
     );
     assert!(started.elapsed() < Duration::from_secs(5));
 }

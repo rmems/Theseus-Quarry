@@ -24,12 +24,28 @@ async fn try_poll(
     let info_body = json!({"jsonrpc": "2.0", "id": "0", "method": "get_info"});
 
     let timeout = budget.request_timeout()?;
-    let mining_resp =
-        http_poll::post_json_object("monero", client, endpoint, &mining_body, timeout).await?;
+    let mining_resp = http_poll::post_json_object(
+        client,
+        http_poll::HttpJsonRequest {
+            adapter: "monero",
+            url: endpoint,
+            timeout,
+        },
+        &mining_body,
+    )
+    .await?;
 
     let timeout = budget.request_timeout()?;
-    let info_resp =
-        http_poll::post_json_object("monero", client, endpoint, &info_body, timeout).await?;
+    let info_resp = http_poll::post_json_object(
+        client,
+        http_poll::HttpJsonRequest {
+            adapter: "monero",
+            url: endpoint,
+            timeout,
+        },
+        &info_body,
+    )
+    .await?;
 
     let mining = mining_resp.get("result")?;
     let info = info_resp.get("result")?;

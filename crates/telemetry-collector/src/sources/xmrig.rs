@@ -26,7 +26,15 @@ async fn try_poll(
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let base = endpoint.trim_end_matches('/');
     let url = format!("{base}/1/summary");
-    let resp = http_poll::get_json_object("xmrig", client, &url, CLIENT_REQUEST_TIMEOUT).await?;
+    let resp = http_poll::get_json_object(
+        client,
+        http_poll::HttpJsonRequest {
+            adapter: "xmrig",
+            url: &url,
+            timeout: CLIENT_REQUEST_TIMEOUT,
+        },
+    )
+    .await?;
     let parsed = parse_summary(&resp)?;
     let stem = format!("{coin}_miner_telemetry");
     Some(miner_perf(

@@ -44,36 +44,54 @@ fn parse_json_object_body(
     Ok(value)
 }
 
-async fn json_object_from_response(
-    adapter: &str,
-    response: reqwest::Response,
-) -> Result<Value, SkipClass> {
-    let status = response.status();
-    let status_code = status.as_u16();
-    if !status.is_success() {
-        log_skip(adapter, SkipClass::HttpStatus, Some(status_code));
-        return Err(SkipClass::HttpStatus);
+fn response_status_code(adapter: &str, response: &reqwest::Response) -> Result<u16, SkipClass> {
+    let status_code = response.status().as_u16();
+    if response.status().is_success() {
+        return Ok(status_code);
     }
+    log_skip(adapter, SkipClass::HttpStatus, Some(status_code));
+    Err(SkipClass::HttpStatus)
+}
 
-    if !content_type_allows_json(
+fn ensure_json_content_type(
+    adapter: &str,
+    status_code: u16,
+    response: &reqwest::Response,
+) -> Result<(), SkipClass> {
+    if content_type_allows_json(
         response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok()),
     ) {
-        log_skip(adapter, SkipClass::WrongContentType, Some(status_code));
-        return Err(SkipClass::WrongContentType);
+        return Ok(());
     }
+    log_skip(adapter, SkipClass::WrongContentType, Some(status_code));
+    Err(SkipClass::WrongContentType)
+}
 
-    let body = match read_body_capped(response, MAX_RESPONSE_BODY_BYTES).await {
-        Ok(b) => b,
+async fn response_json_bytes(
+    adapter: &str,
+    status_code: u16,
+    response: reqwest::Response,
+) -> Result<Vec<u8>, SkipClass> {
+    match read_body_capped(response, MAX_RESPONSE_BODY_BYTES).await {
+        Ok(b) => Ok(b),
         Err(SkipClass::OversizeBody) => {
             log_skip(adapter, SkipClass::OversizeBody, Some(status_code));
-            return Err(SkipClass::OversizeBody);
+            Err(SkipClass::OversizeBody)
         }
-        Err(e) => return Err(e),
-    };
+        Err(e) => Err(e),
+    }
+}
 
+async fn json_object_from_response(
+    adapter: &str,
+    response: reqwest::Response,
+) -> Result<Value, SkipClass> {
+    let status_code = response_status_code(adapter, &response)?;
+    ensure_json_content_type(adapter, status_code, &response)?;
+    let body = response_json_bytes(adapter, status_code, response).await?;
     parse_json_object_body(adapter, status_code, &body)
 }
 
@@ -91,21 +109,25 @@ async fn send_and_parse(
     json_object_from_response(adapter, response).await.ok()
 }
 
-pub async fn get_json_object(
-    adapter: &str,
-    client: &Client,
-    url: &str,
-    timeout: Duration,
-) -> Option<Value> {
-    send_and_parse(adapter, client.get(url).timeout(timeout).send()).await
+/// GET/POST target for bounded JSON object reads.
+pub struct HttpJsonRequest<'a> {
+    pub adapter: &'static str,
+    pub url: &'a str,
+    pub timeout: Duration,
+}
+
+pub async fn get_json_object(client: &Client, req: HttpJsonRequest<'_>) -> Option<Value> {
+    send_and_parse(req.adapter, client.get(req.url).timeout(req.timeout).send()).await
 }
 
 pub async fn post_json_object(
-    adapter: &str,
     client: &Client,
-    url: &str,
+    req: HttpJsonRequest<'_>,
     body: &Value,
-    timeout: Duration,
 ) -> Option<Value> {
-    send_and_parse(adapter, client.post(url).json(body).timeout(timeout).send()).await
+    send_and_parse(
+        req.adapter,
+        client.post(req.url).json(body).timeout(req.timeout).send(),
+    )
+    .await
 }

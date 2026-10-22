@@ -39,7 +39,15 @@ async fn try_poll(
             break;
         };
         let url = format!("{base}{path}");
-        let Some(v) = http_poll::get_json_object("onezerominer", client, &url, timeout).await
+        let Some(v) = http_poll::get_json_object(
+            client,
+            http_poll::HttpJsonRequest {
+                adapter: "onezerominer",
+                url: &url,
+                timeout,
+            },
+        )
+        .await
         else {
             continue;
         };

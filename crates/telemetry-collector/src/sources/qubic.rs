@@ -13,8 +13,15 @@ async fn try_poll(
     client: &reqwest::Client,
     endpoint: &str,
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
-    let resp =
-        http_poll::get_json_object("qubic", client, endpoint, CLIENT_REQUEST_TIMEOUT).await?;
+    let resp = http_poll::get_json_object(
+        client,
+        http_poll::HttpJsonRequest {
+            adapter: "qubic",
+            url: endpoint,
+            timeout: CLIENT_REQUEST_TIMEOUT,
+        },
+    )
+    .await?;
     let tick_info = resp.get("tick_info").unwrap_or(&resp);
     let tick = tick_info.get("tick").and_then(|v| v.as_u64());
     let epoch = tick_info.get("epoch").and_then(|v| v.as_u64());

@@ -27,8 +27,16 @@ async fn try_poll(
         let Some(timeout) = budget.request_timeout() else {
             break;
         };
-        let Some(val) =
-            http_poll::post_json_object("quai", client, endpoint, payload, timeout).await
+        let Some(val) = http_poll::post_json_object(
+            client,
+            http_poll::HttpJsonRequest {
+                adapter: "quai",
+                url: endpoint,
+                timeout,
+            },
+            payload,
+        )
+        .await
         else {
             continue;
         };
