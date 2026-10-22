@@ -1,4 +1,4 @@
-use super::loopback::{is_loopback_host, validate_node_rpc_url};
+use super::loopback::{is_loopback_host, resolve_node_rpc_url, validate_node_rpc_url};
 use super::{
     CLIENT_REQUEST_TIMEOUT, MAX_RESPONSE_BODY_BYTES, ProbeBudget, content_type_allows_json,
     get_json_object, json_request,
@@ -51,6 +51,15 @@ fn loopback_hosts() {
 fn validate_node_rpc_rejects_remote_when_enabled() {
     let err = validate_node_rpc_url("quai", "http://203.0.113.1:9001", true).unwrap_err();
     assert!(err.to_string().contains("loopback"));
+}
+
+#[test]
+fn resolve_node_rpc_disables_remote_when_loopback_required() {
+    assert!(resolve_node_rpc_url("quai", "http://203.0.113.1:9001".into(), true).is_none());
+    assert_eq!(
+        resolve_node_rpc_url("quai", "http://127.0.0.1:9001".into(), true),
+        Some("http://127.0.0.1:9001".into())
+    );
 }
 
 #[tokio::test]

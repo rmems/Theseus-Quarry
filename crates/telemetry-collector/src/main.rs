@@ -4,6 +4,7 @@ mod sources;
 mod writer;
 
 use clap::Parser;
+use clap::builder::BoolishValueParser;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -82,7 +83,13 @@ struct Args {
     qubic_node_api_url: String,
 
     /// When true (default), node RPC/API URLs must target loopback (`127.0.0.1`, `localhost`, or `::1`).
-    #[arg(long, env = "NODE_RPC_LOOPBACK_ONLY", default_value_t = true)]
+    #[arg(
+        long,
+        env = "NODE_RPC_LOOPBACK_ONLY",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        value_parser = BoolishValueParser::new()
+    )]
     node_rpc_loopback_only: bool,
 
     /// Comma-separated list of miner executable basenames to govern.
@@ -126,8 +133,6 @@ struct HttpEndpoints {
     bzminer: String,
     onezerominer: String,
     xmrig: String,
-    dynex: String,
-    qubic: String,
 }
 
 impl HttpEndpoints {
@@ -136,15 +141,52 @@ impl HttpEndpoints {
             bzminer: format!("http://127.0.0.1:{}/", args.kaspa_api_port),
             onezerominer: format!("http://127.0.0.1:{}/", args.dynex_api_port),
             xmrig: format!("http://127.0.0.1:{}/", args.monero_api_port),
-            dynex: format!(
-                "{}/getheight",
-                args.dynex_node_rpc_url.trim_end_matches('/')
-            ),
-            qubic: format!(
-                "{}/tick-info",
-                args.qubic_node_api_url.trim_end_matches('/')
-            ),
         }
+    }
+}
+
+/// Node RPC/API URLs after loopback policy; `None` disables that source only.
+struct NodePollEndpoints {
+    monero_rpc: Option<String>,
+    quai_rpc: Option<String>,
+    dynex_getheight: Option<String>,
+    qubic_tick_info: Option<String>,
+}
+
+impl NodePollEndpoints {
+    fn from_args(args: &Args) -> Self {
+        let loopback_only = args.node_rpc_loopback_only;
+        let dynex_base = sources::http_poll::resolve_node_rpc_url(
+            "dynex",
+            args.dynex_node_rpc_url.clone(),
+            loopback_only,
+        );
+        let qubic_base = sources::http_poll::resolve_node_rpc_url(
+            "qubic",
+            args.qubic_node_api_url.clone(),
+            loopback_only,
+        );
+        Self {
+            monero_rpc: sources::http_poll::resolve_node_rpc_url(
+                "monero",
+                args.monero_node_rpc_url.clone(),
+                loopback_only,
+            ),
+            quai_rpc: sources::http_poll::resolve_node_rpc_url(
+                "quai",
+                args.quai_node_rpc_url.clone(),
+                loopback_only,
+            ),
+            dynex_getheight: dynex_base.map(|u| format!("{}/getheight", u.trim_end_matches('/'))),
+            qubic_tick_info: qubic_base.map(|u| format!("{}/tick-info", u.trim_end_matches('/'))),
+        }
+    }
+}
+
+fn disabled_node_record(source: &'static str) -> sources::TelemetryRecord {
+    sources::TelemetryRecord {
+        source,
+        envelope: None,
     }
 }
 
@@ -236,6 +278,7 @@ struct PollTickContext<'a> {
     client: &'a reqwest::Client,
     args: &'a Args,
     endpoints: &'a HttpEndpoints,
+    node_endpoints: &'a NodePollEndpoints,
     rapl: &'a sources::rapl::RaplState,
 }
 
@@ -251,11 +294,35 @@ type MinerPollBatch = (
 
 async fn poll_mining_sources(ctx: &PollTickContext<'_>) -> MinerPollBatch {
     let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(ctx.args.interval);
+    let monero_node = async {
+        match ctx.node_endpoints.monero_rpc.as_deref() {
+            Some(url) => sources::monero::poll(ctx.client, url, probe_budget).await,
+            None => disabled_node_record("monero"),
+        }
+    };
+    let dynex_node = async {
+        match ctx.node_endpoints.dynex_getheight.as_deref() {
+            Some(url) => sources::dynex::poll(ctx.client, url).await,
+            None => disabled_node_record("dynex"),
+        }
+    };
+    let quai_node = async {
+        match ctx.node_endpoints.quai_rpc.as_deref() {
+            Some(url) => sources::quai::poll(ctx.client, url, probe_budget).await,
+            None => disabled_node_record("quai"),
+        }
+    };
+    let qubic_node = async {
+        match ctx.node_endpoints.qubic_tick_info.as_deref() {
+            Some(url) => sources::qubic::poll(ctx.client, url).await,
+            None => disabled_node_record("qubic"),
+        }
+    };
     tokio::join!(
-        sources::monero::poll(ctx.client, &ctx.args.monero_node_rpc_url, probe_budget),
-        sources::dynex::poll(ctx.client, &ctx.endpoints.dynex),
-        sources::quai::poll(ctx.client, &ctx.args.quai_node_rpc_url, probe_budget),
-        sources::qubic::poll(ctx.client, &ctx.endpoints.qubic),
+        monero_node,
+        dynex_node,
+        quai_node,
+        qubic_node,
         sources::bzminer::poll(ctx.client, &ctx.endpoints.bzminer, "kaspa"),
         sources::monero_miner::poll(
             ctx.client,
@@ -306,6 +373,7 @@ struct CollectorState {
     gpu_sched: gpu_scheduler::GpuScheduler,
     governor: process_governor::ProcessGovernor,
     endpoints: HttpEndpoints,
+    node_endpoints: NodePollEndpoints,
     tick: Duration,
     currently_paused: bool,
     #[cfg(unix)]
@@ -313,15 +381,6 @@ struct CollectorState {
 }
 
 fn prepare_data_dir(args: &Args) -> anyhow::Result<String> {
-    sources::http_poll::validate_node_rpc_urls(
-        args.node_rpc_loopback_only,
-        &[
-            ("dynex", args.dynex_node_rpc_url.as_str()),
-            ("monero", args.monero_node_rpc_url.as_str()),
-            ("quai", args.quai_node_rpc_url.as_str()),
-            ("qubic", args.qubic_node_api_url.as_str()),
-        ],
-    )?;
     Ok(shellexpand::tilde(&args.data_dir).into_owned())
 }
 
@@ -346,6 +405,7 @@ async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
     });
     let tick = Duration::from_secs(args.interval);
     let endpoints = HttpEndpoints::from_args(&args);
+    let node_endpoints = NodePollEndpoints::from_args(&args);
     let mut governor =
         process_governor::ProcessGovernor::new(std::mem::take(&mut args.governed_miners));
 
@@ -369,6 +429,7 @@ async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
         gpu_sched,
         governor,
         endpoints,
+        node_endpoints,
         tick,
         currently_paused,
         #[cfg(unix)]
@@ -395,6 +456,7 @@ async fn run_poll_loop(state: &mut CollectorState) -> anyhow::Result<()> {
             client: &state.client,
             args: &state.args,
             endpoints: &state.endpoints,
+            node_endpoints: &state.node_endpoints,
             rapl: &state.rapl,
         };
         poll_and_flush_sources(&mut tick_ctx).await;

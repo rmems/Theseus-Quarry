@@ -1,4 +1,4 @@
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkipClass {
@@ -33,14 +33,27 @@ fn status_class_from_u16(code: u16) -> &'static str {
 }
 
 pub(crate) fn log_skip(adapter: &str, class: SkipClass, http_status: Option<u16>) {
+    let noisy = matches!(class, SkipClass::HttpSend | SkipClass::HttpStatus);
     if let Some(code) = http_status {
-        warn!(
-            adapter,
-            skip = class.as_str(),
-            http_status = code,
-            status_class = status_class_from_u16(code),
-            "HTTP poll skipped"
-        );
+        if noisy {
+            debug!(
+                adapter,
+                skip = class.as_str(),
+                http_status = code,
+                status_class = status_class_from_u16(code),
+                "HTTP poll skipped"
+            );
+        } else {
+            warn!(
+                adapter,
+                skip = class.as_str(),
+                http_status = code,
+                status_class = status_class_from_u16(code),
+                "HTTP poll skipped"
+            );
+        }
+    } else if noisy {
+        debug!(adapter, skip = class.as_str(), "HTTP poll skipped");
     } else {
         warn!(adapter, skip = class.as_str(), "HTTP poll skipped");
     }

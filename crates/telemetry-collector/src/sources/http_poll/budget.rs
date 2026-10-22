@@ -10,9 +10,10 @@ pub struct ProbeBudget {
 impl ProbeBudget {
     pub fn from_poll_interval_secs(interval_secs: u64) -> Self {
         let total = Duration::from_secs(interval_secs).saturating_sub(PROBE_INTERVAL_SLACK);
-        Self {
-            deadline: tokio::time::Instant::now() + total,
-        }
+        let deadline = tokio::time::Instant::now()
+            .checked_add(total)
+            .unwrap_or_else(tokio::time::Instant::now);
+        Self { deadline }
     }
 
     /// Timeout for the next HTTP call, or `None` when the tick budget is exhausted.

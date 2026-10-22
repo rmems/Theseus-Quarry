@@ -1,4 +1,4 @@
-use tracing::warn;
+use tracing::{error, warn};
 
 /// Returns `true` when `host` is loopback (`127.0.0.1`, `localhost`, or `::1`).
 pub fn is_loopback_host(host: &str) -> bool {
@@ -10,7 +10,6 @@ pub fn validate_node_rpc_url(label: &str, url: &str, loopback_only: bool) -> any
     if !loopback_only {
         warn!(
             label,
-            url = url,
             "NODE_RPC_LOOPBACK_ONLY=false; node RPC URL is not restricted to loopback — use only trusted local endpoints"
         );
         return Ok(());
@@ -27,12 +26,18 @@ pub fn validate_node_rpc_url(label: &str, url: &str, loopback_only: bool) -> any
     Ok(())
 }
 
-pub fn validate_node_rpc_urls(
-    loopback_only: bool,
-    endpoints: &[(&str, &str)],
-) -> anyhow::Result<()> {
-    for (label, url) in endpoints {
-        validate_node_rpc_url(label, url, loopback_only)?;
+/// Accept a node RPC URL when it passes policy, or log and return `None` so the collector
+/// can keep running (GPU governor and miner polls unaffected).
+pub fn resolve_node_rpc_url(label: &str, url: String, loopback_only: bool) -> Option<String> {
+    match validate_node_rpc_url(label, &url, loopback_only) {
+        Ok(()) => Some(url),
+        Err(e) => {
+            error!(
+                label,
+                error = %e,
+                "Disabling node RPC source; fix URL or set NODE_RPC_LOOPBACK_ONLY=false"
+            );
+            None
+        }
     }
-    Ok(())
 }

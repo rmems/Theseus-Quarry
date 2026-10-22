@@ -31,7 +31,7 @@ pub fn json_request<'a>(
         timeout,
     }
 }
-pub use loopback::validate_node_rpc_urls;
+pub use loopback::resolve_node_rpc_url;
 
 /// Maximum response body size read from miner/node HTTP before JSON parse.
 pub const MAX_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
