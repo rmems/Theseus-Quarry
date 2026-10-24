@@ -177,8 +177,16 @@ impl NodePollEndpoints {
                 args.quai_node_rpc_url.clone(),
                 loopback_only,
             ),
-            dynex_getheight: dynex_base.map(|u| format!("{}/getheight", u.trim_end_matches('/'))),
-            qubic_tick_info: qubic_base.map(|u| format!("{}/tick-info", u.trim_end_matches('/'))),
+            dynex_getheight: sources::http_poll::node_url_with_path(
+                "dynex",
+                dynex_base,
+                "getheight",
+            ),
+            qubic_tick_info: sources::http_poll::node_url_with_path(
+                "qubic",
+                qubic_base,
+                "tick-info",
+            ),
         }
     }
 }

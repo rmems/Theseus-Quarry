@@ -1,4 +1,6 @@
-use super::loopback::{is_loopback_host, resolve_node_rpc_url, validate_node_rpc_url};
+use super::loopback::{
+    append_url_path, is_loopback_host, resolve_node_rpc_url, validate_node_rpc_url,
+};
 use super::{
     CLIENT_REQUEST_TIMEOUT, MAX_RESPONSE_BODY_BYTES, ProbeBudget, content_type_allows_json,
     get_json_object, json_request,
@@ -60,6 +62,19 @@ fn resolve_node_rpc_disables_remote_when_loopback_required() {
         resolve_node_rpc_url("quai", "http://127.0.0.1:9001".into(), true),
         Some("http://127.0.0.1:9001".into())
     );
+}
+
+#[test]
+fn append_url_path_preserves_query() {
+    let joined = append_url_path("http://127.0.0.1:17336?token=abc", "getheight").unwrap();
+    let url = reqwest::Url::parse(&joined).unwrap();
+    assert_eq!(url.path(), "/getheight");
+    assert_eq!(url.query(), Some("token=abc"));
+
+    let nested = append_url_path("http://127.0.0.1:8099/api/?x=1", "tick-info").unwrap();
+    let nested_url = reqwest::Url::parse(&nested).unwrap();
+    assert_eq!(nested_url.path(), "/api/tick-info");
+    assert_eq!(nested_url.query(), Some("x=1"));
 }
 
 #[tokio::test]
