@@ -10,14 +10,15 @@ use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-async fn wiremock_get_url(route: &str, response: ResponseTemplate) -> String {
+async fn mounted_get(route: &str, response: ResponseTemplate) -> (MockServer, String) {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path(route))
         .respond_with(response)
         .mount(&server)
         .await;
-    format!("{}{}", server.uri(), route)
+    let url = format!("{}{}", server.uri(), route);
+    (server, url)
 }
 
 async fn assert_get_json_skipped(url: &str, timeout: Duration) {
@@ -80,12 +81,14 @@ fn append_url_path_preserves_query() {
 #[tokio::test]
 async fn rejects_oversized_body() {
     let huge = "x".repeat(MAX_RESPONSE_BODY_BYTES + 1);
-    let url = wiremock_get_url(
+    let (server, url) = mounted_get(
         "/big",
         ResponseTemplate::new(200).set_body_raw(huge, "application/json"),
     )
     .await;
     assert_get_json_skipped(&url, Duration::from_secs(5)).await;
+    let hits = server.received_requests().await.expect("recording");
+    assert_eq!(hits.len(), 1);
 }
 
 #[tokio::test]
@@ -115,7 +118,7 @@ async fn node_client_does_not_follow_redirect() {
 
 #[tokio::test]
 async fn rejects_non_json_content_type() {
-    let url = wiremock_get_url(
+    let (server, url) = mounted_get(
         "/html",
         ResponseTemplate::new(200)
             .insert_header("content-type", "text/html")
@@ -123,6 +126,8 @@ async fn rejects_non_json_content_type() {
     )
     .await;
     assert_get_json_skipped(&url, Duration::from_secs(2)).await;
+    let hits = server.received_requests().await.expect("recording");
+    assert_eq!(hits.len(), 1);
 }
 
 #[tokio::test]
@@ -160,7 +165,7 @@ async fn allows_missing_content_type_when_json_object() {
 
 #[tokio::test]
 async fn slow_body_times_out_without_unbounded_wait() {
-    let url = wiremock_get_url(
+    let (server, url) = mounted_get(
         "/slow",
         ResponseTemplate::new(200)
             .set_delay(Duration::from_secs(30))
@@ -170,6 +175,8 @@ async fn slow_body_times_out_without_unbounded_wait() {
     let started = std::time::Instant::now();
     assert_get_json_skipped(&url, Duration::from_millis(500)).await;
     assert!(started.elapsed() < Duration::from_secs(5));
+    let hits = server.received_requests().await.expect("recording");
+    assert_eq!(hits.len(), 1);
 }
 
 #[tokio::test]
