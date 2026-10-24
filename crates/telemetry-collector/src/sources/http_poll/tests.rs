@@ -80,7 +80,7 @@ fn append_url_path_preserves_query() {
 
 #[tokio::test]
 async fn rejects_oversized_body() {
-    let huge = "x".repeat(MAX_RESPONSE_BODY_BYTES + 1);
+    let huge = format!(r#"{{"data":"{}"}}"#, "x".repeat(MAX_RESPONSE_BODY_BYTES));
     let (server, url) = mounted_get(
         "/big",
         ResponseTemplate::new(200).set_body_raw(huge, "application/json"),
