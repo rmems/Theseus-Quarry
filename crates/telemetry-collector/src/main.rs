@@ -284,6 +284,7 @@ fn apply_startup_gpu_state(
 struct PollTickContext<'a> {
     writer: &'a mut writer::JsonlWriter,
     client: &'a reqwest::Client,
+    node_client: &'a reqwest::Client,
     args: &'a Args,
     endpoints: &'a HttpEndpoints,
     node_endpoints: &'a NodePollEndpoints,
@@ -304,25 +305,25 @@ async fn poll_mining_sources(ctx: &PollTickContext<'_>) -> MinerPollBatch {
     let probe_budget = sources::http_poll::ProbeBudget::from_poll_interval_secs(ctx.args.interval);
     let monero_node = async {
         match ctx.node_endpoints.monero_rpc.as_deref() {
-            Some(url) => sources::monero::poll(ctx.client, url, probe_budget).await,
+            Some(url) => sources::monero::poll(ctx.node_client, url, probe_budget).await,
             None => disabled_node_record("monero"),
         }
     };
     let dynex_node = async {
         match ctx.node_endpoints.dynex_getheight.as_deref() {
-            Some(url) => sources::dynex::poll(ctx.client, url).await,
+            Some(url) => sources::dynex::poll(ctx.node_client, url).await,
             None => disabled_node_record("dynex"),
         }
     };
     let quai_node = async {
         match ctx.node_endpoints.quai_rpc.as_deref() {
-            Some(url) => sources::quai::poll(ctx.client, url, probe_budget).await,
+            Some(url) => sources::quai::poll(ctx.node_client, url, probe_budget).await,
             None => disabled_node_record("quai"),
         }
     };
     let qubic_node = async {
         match ctx.node_endpoints.qubic_tick_info.as_deref() {
-            Some(url) => sources::qubic::poll(ctx.client, url).await,
+            Some(url) => sources::qubic::poll(ctx.node_client, url).await,
             None => disabled_node_record("qubic"),
         }
     };
@@ -376,6 +377,7 @@ async fn poll_and_flush_sources(ctx: &mut PollTickContext<'_>) {
 struct CollectorState {
     args: Args,
     client: reqwest::Client,
+    node_client: reqwest::Client,
     writer: writer::JsonlWriter,
     rapl: sources::rapl::RaplState,
     gpu_sched: gpu_scheduler::GpuScheduler,
@@ -404,6 +406,7 @@ async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
     let client = reqwest::Client::builder()
         .timeout(sources::http_poll::CLIENT_REQUEST_TIMEOUT)
         .build()?;
+    let node_client = sources::http_poll::node_http_client()?;
     let mut writer = writer::JsonlWriter::new(&data_dir);
     let rapl = sources::rapl::RaplState::new();
     let mut gpu_sched = gpu_scheduler::GpuScheduler::new(gpu_scheduler::GpuSchedulerConfig {
@@ -432,6 +435,7 @@ async fn init_collector(mut args: Args) -> anyhow::Result<CollectorState> {
     Ok(CollectorState {
         args,
         client,
+        node_client,
         writer,
         rapl,
         gpu_sched,
@@ -462,6 +466,7 @@ async fn run_poll_loop(state: &mut CollectorState) -> anyhow::Result<()> {
         let mut tick_ctx = PollTickContext {
             writer: &mut state.writer,
             client: &state.client,
+            node_client: &state.node_client,
             args: &state.args,
             endpoints: &state.endpoints,
             node_endpoints: &state.node_endpoints,

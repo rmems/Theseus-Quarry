@@ -3,7 +3,7 @@ use super::loopback::{
 };
 use super::{
     CLIENT_REQUEST_TIMEOUT, MAX_RESPONSE_BODY_BYTES, ProbeBudget, content_type_allows_json,
-    get_json_object, json_request,
+    get_json_object, json_request, node_http_client,
 };
 use reqwest::Client;
 use std::time::Duration;
@@ -82,6 +82,31 @@ async fn rejects_oversized_body() {
     let huge = "x".repeat(MAX_RESPONSE_BODY_BYTES + 1);
     let url = wiremock_get_url("/big", ResponseTemplate::new(200).set_body_string(huge)).await;
     assert_get_json_skipped(&url, Duration::from_secs(5)).await;
+}
+
+#[tokio::test]
+async fn node_client_does_not_follow_redirect() {
+    let remote = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/secret"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(r#"{"leaked":true}"#, "application/json"),
+        )
+        .mount(&remote)
+        .await;
+
+    let local = MockServer::start().await;
+    let location = format!("{}/secret", remote.uri());
+    Mock::given(method("GET"))
+        .and(path("/getheight"))
+        .respond_with(ResponseTemplate::new(302).insert_header("location", location))
+        .mount(&local)
+        .await;
+
+    let client = node_http_client().unwrap();
+    let url = format!("{}/getheight", local.uri());
+    let got = get_json_object(&client, json_request("dynex", &url, Duration::from_secs(2))).await;
+    assert!(got.is_none());
 }
 
 #[tokio::test]

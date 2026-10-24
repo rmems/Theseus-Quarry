@@ -33,6 +33,15 @@ pub fn json_request<'a>(
 }
 pub use loopback::{node_url_with_path, resolve_node_rpc_url};
 
+/// Node RPC client. Redirects are disabled so a loopback endpoint cannot send the
+/// collector to a non-loopback host.
+pub fn node_http_client() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(CLIENT_REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+}
+
 /// Maximum response body size read from miner/node HTTP before JSON parse.
 pub const MAX_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
 
