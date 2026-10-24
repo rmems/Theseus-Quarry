@@ -9,6 +9,7 @@
 //! `monero_miner` for dispatch on the same port.
 
 use super::TelemetryRecord;
+use super::http_poll::{self, CLIENT_REQUEST_TIMEOUT};
 use mining_telemetry_core::{MinerPerfInput, miner_perf};
 
 pub async fn poll(client: &reqwest::Client, endpoint: &str, coin: &str) -> TelemetryRecord {
@@ -25,11 +26,11 @@ async fn try_poll(
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let base = endpoint.trim_end_matches('/');
     let url = format!("{base}/1/summary");
-    let response = client.get(&url).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let resp: serde_json::Value = response.json().await.ok()?;
+    let resp = http_poll::get_json_object(
+        client,
+        http_poll::json_request("xmrig", &url, CLIENT_REQUEST_TIMEOUT),
+    )
+    .await?;
     let parsed = parse_summary(&resp)?;
     let stem = format!("{coin}_miner_telemetry");
     Some(miner_perf(

@@ -2,6 +2,7 @@ use mining_telemetry_core::TelemetryEnvelope;
 
 pub mod bzminer;
 pub mod dynex;
+pub mod http_poll;
 pub mod hwmon;
 pub mod monero;
 pub mod monero_miner;

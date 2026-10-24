@@ -11,12 +11,18 @@
 //! is confirmed).
 
 use super::TelemetryRecord;
+use super::http_poll::{self, ProbeBudget};
 use mining_telemetry_core::{MinerPerfInput, miner_perf};
 
-pub async fn poll(client: &reqwest::Client, endpoint: &str, coin: &str) -> TelemetryRecord {
+pub async fn poll(
+    client: &reqwest::Client,
+    endpoint: &str,
+    coin: &str,
+    budget: ProbeBudget,
+) -> TelemetryRecord {
     TelemetryRecord {
         source: "onezerominer",
-        envelope: try_poll(client, endpoint, coin).await,
+        envelope: try_poll(client, endpoint, coin, budget).await,
     }
 }
 
@@ -24,20 +30,21 @@ async fn try_poll(
     client: &reqwest::Client,
     endpoint: &str,
     coin: &str,
+    budget: ProbeBudget,
 ) -> Option<mining_telemetry_core::TelemetryEnvelope> {
     let base = endpoint.trim_end_matches('/');
-    // At most two probes so a down host stays under the poll interval budget
-    // (client timeout is 2s; two attempts ≤ ~4s with default 5s interval).
     let mut resp: Option<serde_json::Value> = None;
     for path in ["/status", "/"] {
-        let url = format!("{base}{path}");
-        let Ok(r) = client.get(&url).send().await else {
-            continue;
+        let Some(timeout) = budget.request_timeout() else {
+            break;
         };
-        if !r.status().is_success() {
-            continue;
-        }
-        let Ok(v) = r.json::<serde_json::Value>().await else {
+        let url = format!("{base}{path}");
+        let Some(v) = http_poll::get_json_object(
+            client,
+            http_poll::json_request("onezerominer", &url, timeout),
+        )
+        .await
+        else {
             continue;
         };
         if extract_hashrate(&v).is_some() {
