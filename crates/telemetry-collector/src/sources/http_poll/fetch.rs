@@ -81,7 +81,10 @@ async fn response_json_bytes(
             log_skip(adapter, SkipClass::OversizeBody, Some(status_code));
             Err(SkipClass::OversizeBody)
         }
-        Err(e) => Err(e),
+        Err(class) => {
+            log_skip(adapter, class, Some(status_code));
+            Err(class)
+        }
     }
 }
 

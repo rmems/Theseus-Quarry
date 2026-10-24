@@ -80,7 +80,11 @@ fn append_url_path_preserves_query() {
 #[tokio::test]
 async fn rejects_oversized_body() {
     let huge = "x".repeat(MAX_RESPONSE_BODY_BYTES + 1);
-    let url = wiremock_get_url("/big", ResponseTemplate::new(200).set_body_string(huge)).await;
+    let url = wiremock_get_url(
+        "/big",
+        ResponseTemplate::new(200).set_body_raw(huge, "application/json"),
+    )
+    .await;
     assert_get_json_skipped(&url, Duration::from_secs(5)).await;
 }
 
